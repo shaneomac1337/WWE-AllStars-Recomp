@@ -10,10 +10,11 @@ public static class LaunchArguments
     // FSI keeps EDRAM contents across frames the guest does not redraw (scripts/smoke.ps1).
     private const string RenderTargetPath = "--render_target_path_vulkan=fsi";
 
-    public static IReadOnlyList<string> Build(PortableLayout layout, string sessionLogPath) =>
+    /// <param name="updateDataRoot">The update folder the mod library prepared; TU2's own folder when null.</param>
+    public static IReadOnlyList<string> Build(PortableLayout layout, string sessionLogPath, string? updateDataRoot = null) =>
     [
         "--game_data_root=" + layout.GameDataDirectory,
-        "--update_data_root=" + layout.UpdateDataDirectory,
+        "--update_data_root=" + (updateDataRoot ?? layout.UpdateDataDirectory),
         "--user_data_root=" + layout.UserDataDirectory,
         "--cache_root=" + layout.CacheDirectory,
         "--gpu_plugin=xenos",
@@ -31,11 +32,12 @@ public static class LaunchArguments
     /// as Play, so it builds for the GPU and settings the game will use. The mode forces
     /// Native and a hidden window; the windowed flag is spelled out all the same.
     /// </summary>
-    public static IReadOnlyList<string> PreparePipelines(PortableLayout layout) =>
+    /// <param name="updateDataRoot">As <see cref="Build"/>: the folder Play uses; TU2's own folder when null.</param>
+    public static IReadOnlyList<string> PreparePipelines(PortableLayout layout, string? updateDataRoot = null) =>
     [
         "--wwe_prepare_pipelines=true",
         "--game_data_root=" + layout.GameDataDirectory,
-        "--update_data_root=" + layout.UpdateDataDirectory,
+        "--update_data_root=" + (updateDataRoot ?? layout.UpdateDataDirectory),
         "--user_data_root=" + layout.UserDataDirectory,
         "--cache_root=" + layout.CacheDirectory,
         "--gpu_plugin=xenos",

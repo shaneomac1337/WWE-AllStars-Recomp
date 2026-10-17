@@ -82,6 +82,22 @@ internal static class LauncherCrashHandler
     {
         var version = typeof(App).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
             ?? typeof(App).Assembly.GetName().Version?.ToString() ?? "unknown";
-        return new LauncherCrashFacts(ReleaseVersion.Describe(version), Environment.OSVersion.VersionString, KnownGpu);
+        return new LauncherCrashFacts(ReleaseVersion.Describe(version), Environment.OSVersion.VersionString, KnownGpu, EnabledMods());
+    }
+
+    // The mods turned on (spec, user story 45). A crash report goes out without them rather than not at all.
+    private static IReadOnlyList<string>? EnabledMods()
+    {
+        try
+        {
+            var options = App.Options;
+            return new ModLibrary(options.Layout, KnownGameFiles.From(options.Manifest, options.TitleUpdateManifest),
+                FilePlatform.Linker, FilePlatform.RecycleBin).EnabledMods();
+        }
+        catch (Exception error)
+        {
+            App.Log.Write($"crash report: the mods could not be listed: {error.Message}");
+            return null;
+        }
     }
 }

@@ -42,7 +42,7 @@ public sealed class DlcLibrary(string userDataDirectory)
     private string TitleRoot => Path.Combine(userDataDirectory, "0000000000000000", "54510866");
     public string ContentDirectory => Path.Combine(TitleRoot, "00000002");
     public string HeadersDirectory => Path.Combine(TitleRoot, "Headers", "00000002");
-    private string StagingDirectory => Path.Combine(TitleRoot, ".wweallstars-dlc-staging");
+    internal string StagingDirectory => Path.Combine(TitleRoot, ".wweallstars-dlc-staging");
 
     /// <summary>
     /// The DLC packages among intake findings, or a <see cref="SetupException"/> that says what was
@@ -65,11 +65,12 @@ public sealed class DlcLibrary(string userDataDirectory)
             Pack1FileName + "), a folder with packs, or a zip, 7z or rar.");
     }
 
-    /// <summary>The installed packs, by display name.</summary>
+    /// <summary>The installed packs, by display name; the mods' combined content is not a pack.</summary>
     public IReadOnlyList<DlcPack> Installed()
     {
         if (!Directory.Exists(ContentDirectory)) return [];
         return Directory.EnumerateDirectories(ContentDirectory)
+            .Where(folder => !Path.GetFileName(folder).Equals(ModLibrary.CombinedContentName, StringComparison.OrdinalIgnoreCase))
             .Select(folder => Describe(Path.GetFileName(folder)))
             .OrderBy(pack => pack.DisplayName, StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -195,7 +196,7 @@ public sealed class DlcLibrary(string userDataDirectory)
 
     // The XCONTENT_AGGREGATE_DATA ReXGlue reads, big-endian, then the licence mask it reads as a
     // host (little-endian) uint32.
-    private void WriteHeader(string fileName, string displayName)
+    internal void WriteHeader(string fileName, string displayName)
     {
         var header = new byte[AggregateDataSize + 4];
         var span = header.AsSpan();

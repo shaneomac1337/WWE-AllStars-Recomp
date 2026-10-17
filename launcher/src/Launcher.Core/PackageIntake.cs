@@ -136,10 +136,17 @@ public static class PackageIntake
         if (header != null) found.Add(new PackageIntakeItem(source, Classify(header), file, header, null));
     }
 
-    private static bool IsArchive(string path) =>
+    internal static bool IsArchive(string path) =>
         ArchiveExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase);
 
-    private static bool TryUnpack(string archivePath, string folder, CancellationToken cancel, out string? problem)
+    /// <summary>
+    /// Unpacks an archive into <paramref name="folder"/>, skipping entries that climb out of it,
+    /// and stops past <paramref name="limit"/> bytes with <paramref name="tooLarge"/> as the
+    /// problem. The mod library unpacks through it too (ticket 07).
+    /// </summary>
+    internal static bool TryUnpack(string archivePath, string folder, CancellationToken cancel, out string? problem,
+        long limit = MaxUnpackedBytes,
+        string tooLarge = "The archive unpacks to more than 8 GB, far more than a title update or DLC pack.")
     {
         problem = null;
         long unpacked = 0;
@@ -153,9 +160,9 @@ public static class PackageIntake
                 // Entries that climb out of the folder ("../") are skipped.
                 if (SafePath.Inside(folder, entry.Key) is not { } target) continue;
                 unpacked += entry.Size;
-                if (entry.Size < 0 || unpacked > MaxUnpackedBytes)
+                if (entry.Size < 0 || unpacked > limit)
                 {
-                    problem = "The archive unpacks to more than 8 GB, far more than a title update or DLC pack.";
+                    problem = tooLarge;
                     return false;
                 }
                 Directory.CreateDirectory(Path.GetDirectoryName(target)!);

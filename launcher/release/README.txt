@@ -105,6 +105,20 @@ DLC slot. Remove takes a pack out again. Saves made with a DLC wrestler
 still load without the pack; the game asks you to pick another wrestler.
 
 
+MODS
+----
+Choose MODS on the launcher's home screen to add mods: drop a zip, 7z or
+rar, or a folder, onto the page, or use "Add mod..." or "Add folder...".
+New mods start off; turn them on with their toggle. They are used the next
+time you choose Play, and your game files are never changed. When two mods
+replace the same file, the one lower in the list wins. With online play on,
+only mods that change looks load. Remove moves a mod to the Recycle Bin.
+
+To make a mod, read the modding guide and the example mod on the project's
+GitHub page:
+https://github.com/shaneomac1337/WWE-AllStars-Recomp/blob/main/docs/modding.md
+
+
 IF SOMETHING GOES WRONG
 -----------------------
 - "Repair" in the launcher re-checks your game files and Title Update 2 and
@@ -125,6 +139,7 @@ updatedata\               Title Update 2's files (created by setup)
 userdata\                 your saves and launcher state
 cache\                    shaders (rebuilt by the launcher if deleted)
 logs\                     logs of recent game sessions
+mods\                     your mods (created when you add one)
 licenses\                 licences of this project and its components
 
 To move to a newer version, keep your "userdata" folder (your saves) and

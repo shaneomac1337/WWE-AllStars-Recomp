@@ -183,3 +183,29 @@ _Avoid_: competitive match
 **Desync**:
 Two PCs' match simulations drifting apart even though they received the same controller input. The game detects it with its own checksums.
 _Avoid_: out of sync, lag (that's latency)
+
+### Modding
+
+**Mod**:
+A player-supplied change to the game: replacement packages, config edits, or new content, in one folder with a manifest. Never shipped with the port.
+_Avoid_: patch (that's a title update or a code change), addon, plugin
+
+**Cosmetic mod**:
+A mod that changes only how the game looks, so it can be used in online play. A mod counts as cosmetic only if its author says so and it touches nothing on the gameplay list.
+_Avoid_: visual mod, skin
+
+**Gameplay mod**:
+A mod that can change how a match plays: any config edit, any script package, or any mod not declared cosmetic. Left out of online play, because it can cause a desync.
+_Avoid_: balance mod, cheat
+
+**Content mod**:
+A mod that adds to the game instead of replacing, such as a new wrestler in an unused roster slot. It rides on the game's own DLC mechanism. Never used in online play.
+_Avoid_: DLC (that's the official packs), custom DLC
+
+**Roster entry**:
+A content mod's description of one new wrestler: a placeholder slot's id, the complete entry it copies, and the property values it changes, among them its own `CodeName`, the key of its label and pick. The launcher writes it into the roster package at Play, with its name text.
+_Avoid_: character patch, roster edit
+
+**Load order**:
+The player's ordering of enabled mods. When two mods replace the same file, the later one wins.
+_Avoid_: priority, mod order

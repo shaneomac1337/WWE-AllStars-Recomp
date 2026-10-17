@@ -108,7 +108,14 @@ public sealed class GameLauncher(PortableLayout layout, IProcessStarter starter,
     /// <summary>The status line's running state.</summary>
     public string Status => IsRunning ? "Game running" : "Ready";
 
-    public GameSession Play()
+    /// <summary>The session folder's copy of the mods' load report, beside <c>runtime.log</c>, which the game writes.</summary>
+    public const string ModReportFileName = "mods.log";
+
+    /// <param name="mods">
+    /// The mod library's prepare-for-Play result: the game starts on its update folder, and its
+    /// load report goes in the session folder. Null starts on TU2's folder.
+    /// </param>
+    public GameSession Play(PreparedMods? mods = null)
     {
         IRunningGame game;
         string logPath;
@@ -118,11 +125,13 @@ public sealed class GameLauncher(PortableLayout layout, IProcessStarter starter,
             if (!File.Exists(layout.GameExecutable))
                 throw new LauncherException($"The game is missing: {layout.GameExecutable} was not found.");
             logPath = layout.NewSessionLogPath(clock());
-            Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+            var sessionFolder = Path.GetDirectoryName(logPath)!;
+            Directory.CreateDirectory(sessionFolder);
             try
             {
+                if (mods is not null) File.WriteAllLines(Path.Combine(sessionFolder, ModReportFileName), mods.Report.Lines());
                 game = starter.Start(new ProcessStart(layout.GameExecutable, layout.GameDirectory,
-                    LaunchArguments.Build(layout, logPath)));
+                    LaunchArguments.Build(layout, logPath, mods?.UpdateDataRoot)));
             }
             catch (Exception error) when (error is not LauncherException)
             {

@@ -20,6 +20,8 @@ __pycache__/
 /logs/
 /cache/
 /userdata/
+# Player mods (modding spec): never in the repo or the release.
+/mods/
 /shader-cache/
 /ghidra/
 /src/d3d_sweep.gen.cpp

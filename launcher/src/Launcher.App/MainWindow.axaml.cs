@@ -72,6 +72,8 @@ public partial class MainWindow : Window
     private static readonly IPrepareRunner PrepareRunner = new StreamingPrepareRunner(HeadlessCommands.PipelineTimeout);
     // A prepare before Play failed: the next Play starts the game without trying again first.
     private bool _playWithoutPipelines;
+    // Adding the mods' shaders before Play failed: the next Play starts the game with the pack as it is.
+    private bool _playWithoutModShaders;
     // The window state before Play minimized it, given back when the game exits.
     private WindowState? _stateBeforeGame;
 
@@ -86,6 +88,10 @@ public partial class MainWindow : Window
         SettingsButton.Click += (_, _) => ShowSettings();
         ResetSettingsButton.Click += OnResetSettings;
         AboutButton.Click += (_, _) => ShowPanel(AboutView, AboutButton);
+        ModsButton.Click += (_, _) => ShowMods();
+        CloseModsButton.Click += (_, _) => ClosePanel();
+        OpenModsFolderButton.Click += OnOpenModsFolder;
+        WireModInstall();
         DlcButton.Click += (_, _) => ShowDlc();
         CloseDlcButton.Click += (_, _) => ClosePanel();
         CancelDlcButton.Click += (_, _) => _jobs.Cancel(HomeJob.AddDlc);
@@ -152,6 +158,8 @@ public partial class MainWindow : Window
             // A game started before this launcher opened still blocks Play.
             var running = _game.AttachToRunning();
             if (running is not null) Watch(running);
+            // Left by a launcher closed while the game ran; the exe started on its own must not see it.
+            else RemoveCombinedContent();
             ShowCurrentScreen();
             ShowUpdateWhenFound();
             ShowUnseenCrashReports();
@@ -221,6 +229,7 @@ public partial class MainWindow : Window
             PlayButton.Focus();
             ShowShaderOffer();
             CheckGameServer(force: true);
+            UpdateModsOnlineLine();
             return;
         }
         GameDataText.Text = _layout.GameDataDirectory;
@@ -286,6 +295,7 @@ public partial class MainWindow : Window
         // Enter must not start the game from behind a panel.
         PlayButton.IsDefault = false;
         Control first = panel == DlcView ? AddDlcButton
+            : panel == ModsView ? ModsScroll
             : panel != SettingsView ? NoticesScroll
             : _rows.Count > 0 ? _rows[0].Input : CheckForUpdates;
         first.Focus(NavigationMethod.Tab);
@@ -295,7 +305,8 @@ public partial class MainWindow : Window
     {
         if (_panelOpener is null) return;
         FinishOnlineAfterName(cancel);
-        SettingsView.IsVisible = AboutView.IsVisible = DlcView.IsVisible = PanelScrim.IsVisible = false;
+        if (ModsView.IsVisible) MarkModsSeen();
+        SettingsView.IsVisible = AboutView.IsVisible = DlcView.IsVisible = ModsView.IsVisible = PanelScrim.IsVisible = false;
         PlayButton.IsDefault = HomeView.IsVisible;
         _panelOpener.Focus(NavigationMethod.Tab);
         _panelOpener = null;
@@ -557,6 +568,299 @@ public partial class MainWindow : Window
             message = "The title update cannot be read: " + error.Message;
         }
         if (pick == _titleUpdatePick && _setupCancel is null) SetupStatusText.Text = message;
+    }
+
+    // The packages a mod may replace: the disc's and TU2's, from the manifests setup checks against.
+    private KnownGameFiles? _knownGameFiles;
+
+    private ModLibrary Mods => new(_layout,
+        _knownGameFiles ??= KnownGameFiles.From(App.Options.Manifest, App.Options.TitleUpdateManifest,
+            ModWrapping.ConfigFilesIn(_layout.UpdateDataDirectory)),
+        FilePlatform.Linker, FilePlatform.RecycleBin);
+
+    private void ShowMods()
+    {
+        ModsStatusText.Text = "";
+        RefreshModsList();
+        ShowPanel(ModsView, ModsButton);
+    }
+
+    /// <summary>
+    /// One row per mod in load order: its place, name, version, author, problems and "new" mark
+    /// as text, its on/off toggle, Up, Down and Remove; then the conflicts. After a change the
+    /// control the player used keeps the focus, so the page works by keyboard.
+    /// </summary>
+    private void RefreshModsList(string? focusId = null, string? focusControl = null)
+    {
+        ModsList.Children.Clear();
+        ModConflictsList.Children.Clear();
+        ModConflictsHeading.IsVisible = false;
+        IReadOnlyList<ModInfo> mods;
+        IReadOnlyList<ModConflict> conflicts;
+        var online = OnlinePlayOn();
+        try
+        {
+            var library = Mods;
+            mods = library.List();
+            conflicts = library.Conflicts();
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            ModsStatusText.Text = $"Could not read the mods folder: {error.Message}";
+            return;
+        }
+        if (mods.Count == 0)
+        {
+            ModsList.Children.Add(new TextBlock
+            {
+                Classes = { "body" }, TextWrapping = TextWrapping.Wrap,
+                Text = $"No mods yet. The mods folder is {_layout.ModsDirectory}.",
+            });
+            return;
+        }
+        var names = mods.ToDictionary(mod => mod.Id, ModName, StringComparer.OrdinalIgnoreCase);
+        var controls = new Dictionary<(string Id, string Control), Control>();
+        for (var i = 0; i < mods.Count; i++)
+        {
+            var mod = mods[i];
+            var name = names[mod.Id];
+            var toggle = new CheckBox
+            {
+                Content = mod.Enabled ? "On" : "Off", IsChecked = mod.Enabled, IsEnabled = mod.Problems.Count == 0,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            AutomationProperties.SetName(toggle, "Use " + name);
+            toggle.IsCheckedChanged += (_, _) => SetModEnabled(mod.Id, toggle.IsChecked == true);
+            var up = ModButton("Up", "Move " + name + " up", i > 0, () => MoveMod(mod.Id, up: true));
+            var down = ModButton("Down", "Move " + name + " down", i < mods.Count - 1, () => MoveMod(mod.Id, up: false));
+            var remove = ModButton("Remove", "Remove " + name, true, () => RemoveMod(mod.Id, name));
+            controls[(mod.Id, "toggle")] = toggle;
+            controls[(mod.Id, "up")] = up;
+            controls[(mod.Id, "down")] = down;
+
+            var text = new StackPanel { Spacing = 2 };
+            text.Children.Add(new TextBlock
+            {
+                FontSize = 18, FontWeight = FontWeight.Bold, Foreground = Brushes.White, TextWrapping = TextWrapping.Wrap,
+                Text = $"{i + 1}. {name}" + (mod.IsNew ? "  (new)" : ""),
+            });
+            var details = string.Join(" · ", new[] { mod.Manifest?.Version, mod.Manifest?.Author }.Where(part => !string.IsNullOrEmpty(part)));
+            if (details.Length > 0) text.Children.Add(new TextBlock { Classes = { "small" }, Text = details });
+            // The description and problems take the row's full width, under the buttons.
+            var more = new StackPanel { Spacing = 2, Margin = new Thickness(0, 4, 0, 0) };
+            if (mod.Manifest is { Description.Length: > 0 } described)
+                more.Children.Add(new TextBlock { Classes = { "small" }, TextWrapping = TextWrapping.Wrap, Text = described.Description });
+            foreach (var problem in mod.Problems)
+                more.Children.Add(new TextBlock { Classes = { "small" }, TextWrapping = TextWrapping.Wrap, Text = "Off: " + problem });
+            if (mod.Manifest is not null && mod.Problems.Count == 0)
+                more.Children.Add(new TextBlock { Classes = { "small" }, TextWrapping = TextWrapping.Wrap, Text = ModOnlineRule.KindLine(mod, online) });
+            if (mod.IsOffForOnline(online))
+                more.Children.Add(new TextBlock
+                {
+                    Classes = { "small" }, TextWrapping = TextWrapping.Wrap, Foreground = this.FindResource("GoldBrush") as IBrush,
+                    Text = mod.IsContentMod
+                        ? "Off for online play: content mods (new wrestlers) are offline only."
+                        : "Off for online play: only cosmetic mods load while online play is on.",
+                });
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
+            buttons.Children.Add(toggle);
+            buttons.Children.Add(up);
+            buttons.Children.Add(down);
+            buttons.Children.Add(remove);
+            var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), RowDefinitions = new RowDefinitions("Auto,Auto"), ColumnSpacing = 10 };
+            row.Children.Add(text);
+            Grid.SetColumn(buttons, 1);
+            row.Children.Add(buttons);
+            Grid.SetRow(more, 1);
+            Grid.SetColumnSpan(more, 2);
+            row.Children.Add(more);
+            ModsList.Children.Add(new Border { Background = new SolidColorBrush(Color.Parse("#330B1020")), Padding = new Thickness(12, 8), Child = row });
+        }
+        ModConflictsHeading.IsVisible = conflicts.Count > 0;
+        foreach (var conflict in conflicts)
+            ModConflictsList.Children.Add(new TextBlock
+            {
+                Classes = { "small" }, TextWrapping = TextWrapping.Wrap,
+                Text = ConflictText(conflict, names),
+            });
+
+        if (focusId is null || focusControl is null) return;
+        // A move to the top or bottom disables the button just used; the other one takes the focus.
+        var fallback = focusControl == "up" ? "down" : "up";
+        foreach (var key in new[] { focusControl, fallback, "toggle" })
+            if (controls.TryGetValue((focusId, key), out var control) && control.IsEnabled)
+            {
+                Dispatcher.UIThread.Post(() => control.Focus(NavigationMethod.Tab));
+                return;
+            }
+    }
+
+    private static string ModName(ModInfo mod) => mod.Manifest is { Name.Length: > 0 } manifest ? manifest.Name : mod.Id;
+
+    private static Button ModButton(string content, string automationName, bool enabled, Action click)
+    {
+        var button = new Button { Classes = { "secondary" }, Content = content, IsEnabled = enabled, VerticalAlignment = VerticalAlignment.Center };
+        AutomationProperties.SetName(button, automationName);
+        button.Click += (_, _) => click();
+        return button;
+    }
+
+    /// <summary>After a change: the running game keeps what it started with (spec, user story 20).</summary>
+    private void ModChanged(string what)
+    {
+        App.Log.Write(what);
+        ModsStatusText.Text = _game.IsRunning ? "The change applies the next time you choose Play." : "";
+    }
+
+    /// <summary>One line of the CONFLICTS list: what clashes, who supplies it, and who wins (tickets 06, 17).</summary>
+    private static string ConflictText(ModConflict conflict, IReadOnlyDictionary<string, string> names)
+    {
+        var winner = names[conflict.Winner];
+        string Join(IEnumerable<string> parts) => string.Join(", ", parts);
+        return conflict.Kind switch
+        {
+            ModConflictKind.RosterSlot =>
+                $"Roster slot {conflict.File["CharacterData_".Length..]}: {Join(conflict.Mods.Select(id => names[id]))} fill it. " +
+                $"{winner} wins, as the lowest in the list.",
+            ModConflictKind.RosterCodeName =>
+                $"CodeName {conflict.File}: {Join(conflict.Mods.Select(id => names[id]))} give it to a wrestler, and the game would show one of them. " +
+                $"{winner} wins, as the lowest in the list; the other wrestler is left out.",
+            ModConflictKind.RosterPackage =>
+                $"{conflict.File}: {winner} ships a whole one, which replaces it for " +
+                $"{Join([.. conflict.Packs, .. conflict.Mods.Where(id => id != conflict.Winner).Select(id => names[id])])}. " +
+                "The official packs' wrestlers stay only if it carries them" +
+                (conflict.File.Equals("CombinedGlobalCharacters.xxx", StringComparison.OrdinalIgnoreCase)
+                    ? "; roster.toml entries are still written into it." : "."),
+            ModConflictKind.ContentFile =>
+                $"{conflict.File}: {Join([.. conflict.Packs, .. conflict.Mods.Select(id => names[id])])} have it. {winner} wins, " +
+                (conflict.Mods.Count > 1 ? "as the lowest in the list." : "as a mod's file replaces an official pack's."),
+            _ => $"{conflict.File}: {Join(conflict.Mods.Select(id => names[id]))} replace it. {winner} wins, as the lowest in the list.",
+        };
+    }
+
+    /// <summary>The player's <c>wwe_online</c> setting; off when the settings file can't be read.</summary>
+    private bool OnlinePlayOn() => SettingsFile.OnlinePlayOn(_layout.SettingsFile);
+
+    /// <summary>The Play area's "N gameplay mods off for online play" line (spec, "Online rule").</summary>
+    private void UpdateModsOnlineLine()
+    {
+        var count = 0;
+        if (OnlinePlayOn())
+        {
+            try
+            {
+                count = Mods.List().Count(mod => mod.IsOffForOnline(online: true));
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                // The Mods page reports an unreadable mods folder.
+            }
+        }
+        ModsOnlineText.Text = ModOnlineRule.OffForOnlineLine(count);
+        ModsOnlineText.IsVisible = count > 0;
+    }
+
+    private void SetModEnabled(string id, bool enabled)
+    {
+        try
+        {
+            Mods.SetEnabled(id, enabled);
+            ModChanged($"Mod {id}: {(enabled ? "on" : "off")}");
+        }
+        catch (Exception error) when (error is LauncherException or IOException or UnauthorizedAccessException)
+        {
+            ModsStatusText.Text = error.Message;
+        }
+        RefreshModsList(id, "toggle");
+        UpdateModsOnlineLine();
+    }
+
+    private void MoveMod(string id, bool up)
+    {
+        try
+        {
+            if (up) Mods.MoveUp(id);
+            else Mods.MoveDown(id);
+            ModChanged($"Mod {id}: moved {(up ? "up" : "down")}");
+        }
+        catch (Exception error) when (error is LauncherException or IOException or UnauthorizedAccessException)
+        {
+            ModsStatusText.Text = error.Message;
+        }
+        RefreshModsList(id, up ? "up" : "down");
+    }
+
+    /// <summary>To the Recycle Bin, so a mistaken removal can be undone there (spec, user story 17).</summary>
+    private void RemoveMod(string id, string name)
+    {
+        try
+        {
+            Mods.Remove(id);
+            ModChanged($"Mod {id}: moved to the Recycle Bin");
+            if (ModsStatusText.Text is not { Length: > 0 })
+                ModsStatusText.Text = $"{name} is in the Recycle Bin; restore it from there if you need it back.";
+        }
+        catch (Exception error) when (error is LauncherException or IOException or UnauthorizedAccessException)
+        {
+            ModsStatusText.Text = error.Message;
+        }
+        RefreshModsList();
+        UpdateModsOnlineLine();
+        ModsScroll.Focus(NavigationMethod.Tab);
+    }
+
+    // Leaving the page clears the "new" marks: the player has seen them.
+    private void MarkModsSeen()
+    {
+        try
+        {
+            Mods.MarkAllSeen();
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            App.Log.Write($"Mods: the new marks could not be cleared: {error.Message}");
+        }
+    }
+
+    private async void OnOpenModsFolder(object? sender, RoutedEventArgs e)
+    {
+        var folder = _layout.ModsDirectory;
+        try
+        {
+            Directory.CreateDirectory(folder);
+            if (!await Launcher.LaunchDirectoryInfoAsync(new DirectoryInfo(folder)))
+                ModsStatusText.Text = $"Could not open the mods folder: {folder}";
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            ModsStatusText.Text = $"Could not open the mods folder: {error.Message}";
+        }
+    }
+
+    /// <summary>Deletes the content mods' combined content (spec, "Removed when not wanted"); a failure is only logged.</summary>
+    private void RemoveCombinedContent()
+    {
+        try
+        {
+            Mods.RemoveCombinedContent();
+        }
+        catch (LauncherException error)
+        {
+            App.Log.Write(error.Message);
+        }
+    }
+
+    /// <summary>The update folder for this Play (ADR-0026), with its load report in the launcher log.</summary>
+    private async Task<PreparedMods> PrepareMods()
+    {
+        var online = OnlinePlayOn();
+        var library = Mods;
+        var updateFolder = _layout.UpdateDataDirectory;
+        var prepared = await Task.Run(() => library.PrepareForPlay(updateFolder, online));
+        foreach (var line in prepared.Report.Lines()) App.Log.Write(line);
+        ModsOnlineText.Text = ModOnlineRule.OffForOnlineLine(prepared.Report.LeftOut.Count);
+        ModsOnlineText.IsVisible = prepared.Report.LeftOut.Count > 0;
+        return prepared;
     }
 
     private void ShowDlc()
@@ -1038,7 +1342,8 @@ public partial class MainWindow : Window
         StatusText.Text = $"{step}… {progress.Fraction:0%}";
     }
 
-    private PipelinePreparation Pipelines() => new(_layout, PrepareRunner);
+    /// <param name="updateDataRoot">The update folder Play uses, so the prepare plans the mods' materials too (ticket 09).</param>
+    private PipelinePreparation Pipelines(string? updateDataRoot = null) => new(_layout, PrepareRunner, updateDataRoot);
 
     private void ShowSetupPipelineProgress(PipelineProgress progress)
     {
@@ -1056,6 +1361,7 @@ public partial class MainWindow : Window
         PipelineRebuild.Stale => "Your graphics card or driver changed, so the game's pipelines are built again",
         PipelineRebuild.PackChanged or PipelineRebuild.TopUpsChanged => "The Native shaders changed, so the game's pipelines are built again",
         PipelineRebuild.KeyListChanged => "This version of the game plans other pipelines, so they are built again",
+        PipelineRebuild.UpdateFolderChanged => "Other mods are in use, so the game's pipelines are built again",
         PipelineRebuild.Repair => "Rebuilding the game's pipelines",
         _ => "Preparing the game's pipelines for your graphics card",
     };
@@ -1064,7 +1370,7 @@ public partial class MainWindow : Window
     /// The home screen's pipeline job: runs the prepare with its own progress bar while Play is
     /// off. Returns the result, or null when a prepare already runs.
     /// </summary>
-    private async Task<PipelineResult?> RunPipelineJob(PipelineRebuild why)
+    private async Task<PipelineResult?> RunPipelineJob(PipelineRebuild why, string? updateDataRoot = null)
     {
         if (!_jobs.TryStart(HomeJob.PreparePipelines, out _)) return null;
         PlayButton.IsEnabled = false;
@@ -1075,7 +1381,7 @@ public partial class MainWindow : Window
         StatusText.Text = reason + "…";
         try
         {
-            return await Pipelines().RunAsync(new Progress<PipelineProgress>(value =>
+            return await Pipelines(updateDataRoot).RunAsync(new Progress<PipelineProgress>(value =>
             {
                 if (!_jobs.IsRunning(HomeJob.PreparePipelines)) return;
                 PipelineProgressBar.Value = value.Fraction;
@@ -1100,15 +1406,28 @@ public partial class MainWindow : Window
         SetupDetailText.Text = $"{progress.Fraction:0%} · {HeadlessCommands.ShaderStepName(progress.Step)}";
     }
 
-    /// <summary>Runs the shader step; returns null on success, else what to tell the player.</summary>
+    /// <summary>
+    /// Runs the shader step over the disc and the mods turned on (ticket 09); returns null on
+    /// success, else what to tell the player.
+    /// </summary>
     private async Task<string?> RunShaderStep(IProgress<ShaderProgress> progress, CancellationToken cancel)
     {
         var gameData = _layout.GameDataDirectory;
         var cache = _layout.CacheDirectory;
+        var library = Mods;
         try
         {
-            await Task.Run(() => _shaders.Run(gameData, cache, progress, cancel), cancel);
+            await Task.Run(() =>
+            {
+                var mods = library.ShaderSources();
+                _shaders.Run(gameData, cache, progress, cancel, mods.Folders);
+                library.ShadersPrepared(mods);
+            }, cancel);
             return null;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            return $"The mods could not be read for shaders: {error.Message}";
         }
         catch (OperationCanceledException)
         {
@@ -1131,13 +1450,16 @@ public partial class MainWindow : Window
 
     private void OnPrepareShaders(object? sender, RoutedEventArgs e) => PrepareShaders();
 
-    private async void PrepareShaders(bool afterSession = false)
+    private async void PrepareShaders(bool afterSession = false) => await PrepareShadersJob(afterSession);
+
+    /// <summary>The home screen's shader job, with its progress bar; true when the pack was written.</summary>
+    private async Task<bool> PrepareShadersJob(bool afterSession = false, bool forMods = false)
     {
-        if (afterSession && _jobs.IsRunning(HomeJob.PrepareShaders)) return;
+        if (afterSession && _jobs.IsRunning(HomeJob.PrepareShaders)) return false;
         if (!_jobs.TryStart(HomeJob.PrepareShaders, out var cancel))
         {
             _jobs.Cancel(HomeJob.PrepareShaders);
-            return;
+            return false;
         }
         UpdatePlayButton();
         PrepareShadersButton.Content = "CANCEL SHADERS";
@@ -1154,9 +1476,10 @@ public partial class MainWindow : Window
         PrepareShadersButton.Content = "PREPARE SHADERS";
         UpdatePlayButton();
         ShowShaderOffer();
-        StatusText.Text = message ?? (afterSession
-            ? "Added the shaders the game found; they show from the next start."
+        StatusText.Text = message ?? (forMods ? "Added the mods' shaders to Native."
+            : afterSession ? "Added the shaders the game found; they show from the next start."
             : "Shaders ready: the game can run on Native.");
+        return message is null;
     }
 
     // Switches and plays in one step (gpu-robustness story 3).
@@ -1205,12 +1528,36 @@ public partial class MainWindow : Window
     private async Task Play()
     {
         if (!_jobs.CanPlay(_game.IsRunning)) return;
+        PreparedMods mods;
+        try
+        {
+            mods = await PrepareMods();
+        }
+        catch (LauncherException error)
+        {
+            StatusText.Text = error.Message;
+            return;
+        }
+        // The mods in use bring packages the pack was not built with: add their shaders first
+        // (spec, "Shaders"; ticket 09). The new pack makes the check below prepare pipelines.
+        // Without a usable pack Prepare shaders is offered as before, and covers the mods.
+        if (mods.ShadersChanged && !_playWithoutModShaders && _shaders.StatusOf(_layout.CacheDirectory).Pack.Ready)
+        {
+            if (!await PrepareShadersJob(forMods: true))
+            {
+                // Said once; the top-up still catches the shaders in game.
+                _playWithoutModShaders = true;
+                StatusText.Text += " Choose Play to start anyway.";
+                return;
+            }
+        }
+        _playWithoutModShaders = false;
         // Rebuild without a click when the pack, the top-ups or the key list changed, the store
         // is missing or the game marked it stale (spec, "When the launcher rebuilds pipelines").
-        var rebuild = Pipelines().Check(_shaders.StatusOf(_layout.CacheDirectory).Pack.Ready);
+        var rebuild = Pipelines(mods.UpdateDataRoot).Check(_shaders.StatusOf(_layout.CacheDirectory).Pack.Ready);
         if (rebuild.Rebuilds() && !_playWithoutPipelines)
         {
-            if (await RunPipelineJob(rebuild) is not { } result) return;
+            if (await RunPipelineJob(rebuild, mods.UpdateDataRoot) is not { } result) return;
             if (!result.Usable)
             {
                 // Said once, then the next Play starts the game as it is.
@@ -1222,7 +1569,7 @@ public partial class MainWindow : Window
         _playWithoutPipelines = false;
         try
         {
-            Watch(_game.Play());
+            Watch(_game.Play(mods));
             SwitchToEmulatedButton.IsVisible = false;
         }
         catch (LauncherException error)
@@ -1291,6 +1638,8 @@ public partial class MainWindow : Window
             if (_stateBeforeGame is { } before && WindowState == WindowState.Minimized) WindowState = before;
             _stateBeforeGame = null;
             UpdateMotion();
+            // Before Play is back on: the exe started on its own never sees the content mods.
+            RemoveCombinedContent();
             // The game has just exited; a repair or the shader step still running keeps Play off.
             PlayButton.IsEnabled = _jobs.CanPlay(gameRunning: false);
             if (exited.IsCompletedSuccessfully) ShowShaderOffer(gameAskedForIt: exited.Result.OfferShaderRebuild);
@@ -1539,6 +1888,7 @@ public partial class MainWindow : Window
             _filling = false;
         }
         CheckGameServer();
+        UpdateModsOnlineLine();
     }
 
     private static void ShowNote(SettingRow row, string? note)

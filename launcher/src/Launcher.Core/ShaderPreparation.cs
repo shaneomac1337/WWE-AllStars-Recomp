@@ -97,9 +97,11 @@ public sealed partial class ShaderPreparation(IShaderConverter converter, ulong 
     /// <summary>Where the game puts a top-up container it converted live.</summary>
     public static string ConvertedPath(string containerFile) => Path.ChangeExtension(containerFile, ConvertedExtension);
 
+    /// <param name="modPackageFolders">The mods' <c>packages/</c> folders, read like the disc's (ticket 09).</param>
     /// <exception cref="ShaderPreparationException">The step failed; the game runs on Emulated.</exception>
     /// <exception cref="OperationCanceledException">The step was cancelled.</exception>
-    public void Run(string gameDataDirectory, string cacheDirectory, IProgress<ShaderProgress>? progress, CancellationToken cancel)
+    public void Run(string gameDataDirectory, string cacheDirectory, IProgress<ShaderProgress>? progress, CancellationToken cancel,
+        IReadOnlyList<string>? modPackageFolders = null)
     {
         var work = Path.Combine(cacheDirectory, WorkFolderName);
         var pack = Path.Combine(cacheDirectory, ShaderPackFile.FileName);
@@ -107,7 +109,7 @@ public sealed partial class ShaderPreparation(IShaderConverter converter, ulong 
         try
         {
             progress?.Report(new ShaderProgress(ShaderStep.ReadingGameFiles, 0));
-            var containers = DiscShaders.Read(gameDataDirectory,
+            var containers = DiscShaders.Read([gameDataDirectory, .. modPackageFolders ?? []],
                 Scaled<(int Done, int Total)>(progress, ShaderStep.ReadingGameFiles, 0, ReadShare, count => (double)count.Done / count.Total),
                 cancel);
             if (containers.Count == 0)

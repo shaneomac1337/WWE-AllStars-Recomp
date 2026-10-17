@@ -131,6 +131,14 @@ The port is built on Title Update 2, the game's last update, because the DLC wre
 it. Add the DLC packs you bought on the launcher's DLC page; each pack is checked block by
 block before it is installed.
 
+### Mods
+
+The launcher's Mods page installs mods from a zip, 7z, rar or folder, turns them on and off,
+sets their load order and shows conflicts. Mods can replace packages, edit config and text,
+and add new wrestlers in the roster's free slots. Your game files are never changed. With
+online play on, only mods that change looks load. The [modding guide](docs/modding.md)
+explains the format, and [`docs/example-mod`](docs/example-mod) is a commented example.
+
 ### A launcher that sets everything up
 
 <table>

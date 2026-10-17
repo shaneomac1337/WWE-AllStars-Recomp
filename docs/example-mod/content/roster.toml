@@ -1,0 +1,24 @@
+# The new wrestler's roster entry. The launcher writes it into the game's roster at Play;
+# you never ship or edit the roster package yourself.
+#
+# One [id] section per free slot the mod fills. The 11 free slots are
+# 120, 125, 127, 128, 129, 130, 215, 217, 228, 229 and 230.
+[120]
+
+# The complete roster entry this one copies: 101-130 or 201-230, not a free slot.
+# Everything this file doesn't set comes from it, its look, moves and sounds included.
+# 101 is Hulk Hogan, from the main roster: every package he uses is on the disc, so the
+# example needs no official pack. Left out, the template is 110, the Million Dollar Man,
+# a DLC wrestler the game plays from Pack 1's packages (the Million Dollar Pack).
+template = 101
+
+# Required. The launcher shows it on the select screen, in capitals.
+CharacterName = "Example Hogan"
+
+# Required: letters and digits, used by no other wrestler. The game finds the wrestler's
+# name and the wrestler you pick by it, so a copied CodeName would play as the original.
+CodeName = "ExampleHogan"
+
+# Stats are whole numbers. Remove the "#" to change one.
+# nHealth = 90
+# nPower = 80

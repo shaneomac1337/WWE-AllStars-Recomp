@@ -1,0 +1,18 @@
+# An example mod for WWE All Stars Recomp. The modding guide (docs/modding.md) explains
+# every part. Copy this folder, rename it, and change what you need.
+#
+# The launcher reads flat "key = value" lines. Strings are quoted; "#" starts a comment.
+
+# Shown on the Mods page. The launcher also names the mod's folder after it, so keep it the
+# same from one version to the next: installing a newer version then updates the mod.
+name = "Example Wrestler"
+author = "WWE All Stars Recomp"
+version = "1.0"
+description = "Adds a renamed copy of Hulk Hogan in a free roster slot, and skips the THQ logo at start."
+
+# The game version the mod is made for. Only "TU2" (Title Update 2) is accepted.
+game = "TU2"
+
+# "cosmetic" or "gameplay"; left out, it is "gameplay". This mod edits config and adds a
+# wrestler, so it is gameplay whatever it says here: it loads only with online play off.
+kind = "gameplay"

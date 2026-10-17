@@ -71,6 +71,62 @@ public sealed class RealPackageTests : IDisposable
         Assert.Equal((byte)0x89, TitleTile.ReadPng(nxeart)[0]); // a PNG
     }
 
+    [Fact]
+    public void The_discs_roster_names_every_wrestler_by_a_CodeName_of_its_own()
+    {
+        var disc = new[] { Path.Combine(Repo, "assets"), Environment.GetEnvironmentVariable("WWE_ALLSTARS_ASSETS") ?? "" }
+            .Select(folder => Path.Combine(folder, "Game", "CookedXenon", "CombinedGlobalCharacters.xxx"))
+            .FirstOrDefault(File.Exists);
+        Assert.SkipUnless(disc is not null, "the disc's CombinedGlobalCharacters.xxx is not in assets/");
+
+        var names = RosterWriter.Names(File.ReadAllBytes(disc));
+
+        var wrestlers = names.Where(name => !RosterFile.Placeholders.Contains(name.Id) && name.CodeName.Length > 0).ToList();
+        Assert.Contains(names, name => name is { Id: 110, CodeName: "TedDibiase" });
+        Assert.True(wrestlers.Count >= 40, $"{wrestlers.Count} wrestlers with a CodeName");
+        Assert.Equal(wrestlers.Count, wrestlers.Select(name => name.CodeName).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+    }
+
+    [Fact]
+    public void A_roster_entry_written_into_the_discs_roster_reads_back_and_keeps_the_rest()
+    {
+        // WWE_ALLSTARS_ASSETS points a worktree, which has no assets/, at the main checkout's.
+        var disc = new[] { Path.Combine(Repo, "assets"), Environment.GetEnvironmentVariable("WWE_ALLSTARS_ASSETS") ?? "" }
+            .Select(folder => Path.Combine(folder, "Game", "CookedXenon", "CombinedGlobalCharacters.xxx"))
+            .FirstOrDefault(File.Exists);
+        Assert.SkipUnless(disc is not null, "the disc's CombinedGlobalCharacters.xxx is not in assets/");
+        var original = File.ReadAllBytes(disc);
+        var entry = new RosterEntry(120, 110, new Dictionary<string, string>
+        {
+            ["CharacterName"] = "Roster Test",
+            ["CharacterCode"] = "CHR120",
+            ["IntroCinemaLevelName"] = "Intro_CHR120",
+            ["AnimSetAsset"] = "AnimSet_Roster_Test.AnimSet_Roster_Test_AnimSet",
+            ["AudioAsset"] = "Audio_Set_CHR120.Audio_Set_CHR120",
+        });
+
+        var written = RosterWriter.Write(original, [entry]);
+
+        var filled = RosterWriter.ReadEntry(written, 120);
+        Assert.Equal("Roster Test", filled["CharacterName"]);
+        Assert.Equal("TedDibiase", filled["CodeName"]);
+        Assert.Equal("CHR120", filled["CharacterCode"]);
+        Assert.Equal("AnimSet_Roster_Test.AnimSet_Roster_Test_AnimSet", filled["AnimSetAsset"]);
+        Assert.Equal("Audio_Set_CHR120.Audio_Set_CHR120", filled["AudioAsset"]);
+        Assert.Equal("Audio_MX_Victory_CHR110.Master.MX.VICTORY.Audio_MX_Victory_CHR110", filled["AudioVictoryMusicAsset"]);
+        Assert.Equal("true", filled["LegendId.b20"]);
+        Assert.Equal("Undefined", RosterWriter.ReadEntry(original, 120)["CharacterName"]);
+        foreach (var id in new[] { 101, 110, 121, 204, 230 })
+            Assert.Equal(RosterWriter.ReadEntry(original, id), RosterWriter.ReadEntry(written, id));
+        // Every shader cache record end was moved with its body: the same containers read back.
+        Directory.CreateDirectory(Path.Combine(_folder, "a"));
+        Directory.CreateDirectory(Path.Combine(_folder, "b"));
+        File.WriteAllBytes(Path.Combine(_folder, "a", "CombinedGlobalCharacters.xxx"), original);
+        File.WriteAllBytes(Path.Combine(_folder, "b", "CombinedGlobalCharacters.xxx"), written);
+        Assert.Equal(DiscShaders.Read(Path.Combine(_folder, "a"), null, CancellationToken.None).Select(c => c.Name),
+            DiscShaders.Read(Path.Combine(_folder, "b"), null, CancellationToken.None).Select(c => c.Name));
+    }
+
     private void CheckUnpacked(StfsPackage package, string listName)
     {
         package.Extract(_folder, null, CancellationToken.None);

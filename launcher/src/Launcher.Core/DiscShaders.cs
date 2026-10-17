@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Text;
 
 namespace WweAllStars.Launcher.Core;
 
@@ -35,23 +34,34 @@ public static class DiscShaders
     /// </summary>
     /// <exception cref="InvalidDataException">A package is damaged; the message names it.</exception>
     public static IReadOnlyList<ShaderContainer> Read(string gameDataDirectory, IProgress<(int Done, int Total)>? progress,
+        CancellationToken cancel) =>
+        Read([gameDataDirectory], progress, cancel);
+
+    /// <summary>
+    /// The unique containers of every package under each of <paramref name="folders"/>, such as
+    /// the game data and the mods' <c>packages/</c> folders (ticket 09). Progress counts all of them.
+    /// </summary>
+    /// <exception cref="InvalidDataException">A package is damaged; the message names it.</exception>
+    public static IReadOnlyList<ShaderContainer> Read(IReadOnlyList<string> folders, IProgress<(int Done, int Total)>? progress,
         CancellationToken cancel)
     {
-        var files = Directory.EnumerateFiles(gameDataDirectory, PackageExtension, SearchOption.AllDirectories)
-            .Order(StringComparer.OrdinalIgnoreCase).ToList();
+        var files = folders.SelectMany(folder =>
+                Directory.EnumerateFiles(folder, PackageExtension, SearchOption.AllDirectories)
+                    .Order(StringComparer.OrdinalIgnoreCase).Select(file => (Folder: folder, File: file)))
+            .ToList();
         var found = new Dictionary<string, ShaderContainer>(StringComparer.Ordinal);
         for (var i = 0; i < files.Count; i++)
         {
             cancel.ThrowIfCancellationRequested();
             try
             {
-                foreach (var container in Ue3Package.ShaderContainers(File.ReadAllBytes(files[i])))
+                foreach (var container in Ue3Package.ShaderContainers(File.ReadAllBytes(files[i].File)))
                     found.TryAdd(container.Name, container);
             }
             catch (Exception error) when (error is InvalidDataException or ArgumentException or IndexOutOfRangeException or OverflowException)
             {
                 throw new InvalidDataException(
-                    $"A game file could not be read for shaders: {Path.GetRelativePath(gameDataDirectory, files[i])}. {error.Message}", error);
+                    $"A game file could not be read for shaders: {Path.GetRelativePath(files[i].Folder, files[i].File)}. {error.Message}", error);
             }
             progress?.Report((i + 1, files.Count));
         }
@@ -81,36 +91,87 @@ internal static class Ue3Package
         return Read(package);
     }
 
+    /// <summary>A package as the game reads it: a whole-file or chunked LZO package expanded, a plain one as it is.</summary>
+    /// <exception cref="InvalidDataException">It is not a package, or it is damaged.</exception>
+    public static byte[] Unpacked(byte[] file)
+    {
+        if (file.Length >= 4 && BinaryPrimitives.ReadUInt32LittleEndian(file) == Tag) return WholeFile(file);
+        if (file.Length >= 4 && BinaryPrimitives.ReadUInt32BigEndian(file) == Tag)
+        {
+            try
+            {
+                return Expand(file);
+            }
+            catch (Exception error) when (error is ArgumentException or IndexOutOfRangeException or OverflowException)
+            {
+                throw Damaged("its summary lies outside the file");
+            }
+        }
+        throw new InvalidDataException("The file is not a game package.");
+    }
+
+    /// <summary>
+    /// The second column of a package's TOC line: for a whole-file LZO package the size it
+    /// expands to, the sum of its chunks' uncompressed sizes, read from the chunk headers alone;
+    /// 0 for a plain package. Null when the file is not a package (no tag in either byte order).
+    /// The game hangs at boot on a whole-file package listed without it (modding research §2.3).
+    /// </summary>
+    /// <exception cref="InvalidDataException">A chunk header is cut short.</exception>
+    public static long? TocUncompressedSize(Stream file)
+    {
+        Span<byte> word = stackalloc byte[8];
+        int ReadAt(long offset, Span<byte> into)
+        {
+            file.Position = offset;
+            return file.ReadAtLeast(into, into.Length, throwOnEndOfStream: false);
+        }
+
+        if (ReadAt(0, word[..4]) < 4) return null;
+        if (BinaryPrimitives.ReadUInt32BigEndian(word) == Tag) return 0;
+        if (BinaryPrimitives.ReadUInt32LittleEndian(word) != Tag) return null;
+
+        long total = 0;
+        long at = 0;
+        Span<byte> header = stackalloc byte[16];
+        while (ReadAt(at, header) == 16 && BinaryPrimitives.ReadUInt32LittleEndian(header) == Tag)
+        {
+            var size = BinaryPrimitives.ReadInt32LittleEndian(header[12..]);
+            if (size < 0) throw Damaged("a compressed chunk has a negative size");
+            total += size;
+            var p = at + 16;
+            long compressed = 0;
+            for (long sum = 0; sum < size; p += 8)
+            {
+                if (ReadAt(p, word) < 8) throw Damaged("a compressed chunk ends early");
+                var blockCompressed = BinaryPrimitives.ReadInt32LittleEndian(word);
+                var blockSize = BinaryPrimitives.ReadInt32LittleEndian(word[4..]);
+                if (blockCompressed < 0 || blockSize <= 0) throw Damaged("a compressed block has a bad size");
+                compressed += blockCompressed;
+                sum += blockSize;
+            }
+            at = p + compressed;
+            if (at > file.Length) throw Damaged("a compressed block ends early");
+        }
+        return total;
+    }
+
     private static List<ShaderContainer> Read(byte[] d)
     {
-        var p = 20;
-        FString(d, ref p); // folder name
-        p += 4; // package flags
-        var nameCount = I32(d, ref p);
-        var nameOffset = I32(d, ref p);
-        var exportCount = I32(d, ref p);
-        var exportOffset = I32(d, ref p);
-        var importCount = I32(d, ref p);
-        var importOffset = I32(d, ref p);
-
-        var names = new string[nameCount];
-        p = nameOffset;
-        for (var i = 0; i < nameCount; i++)
-        {
-            names[i] = FString(d, ref p);
-            p += 8; // flags
-        }
-        string Name(int index) => (uint)index < (uint)names.Length ? names[index] : throw Damaged("a name index is out of range");
+        var bytes = new PackageBytes(d);
+        var summary = Ue3Summary.Read(bytes);
+        if (summary.NameCount < 0) throw Damaged("the name table has a negative count");
+        var names = Ue3Summary.Names(bytes, summary.NameCount, summary.NameOffset, out _);
+        string Name(int index) => (uint)index < (uint)names.Count ? names[index] : throw Damaged("a name index is out of range");
 
         // Import entry: class package, class name, outer, object name; the export's class is
         // the import with ObjectName "ShaderCache".
-        var importNames = new string[importCount];
-        for (var i = 0; i < importCount; i++)
-            importNames[i] = Name(BinaryPrimitives.ReadInt32BigEndian(d.AsSpan(importOffset + i * 28 + 20)));
+        var importNames = new string[summary.ImportCount];
+        for (var i = 0; i < summary.ImportCount; i++)
+            importNames[i] = Name(BinaryPrimitives.ReadInt32BigEndian(d.AsSpan(summary.ImportOffset + i * 28 + 20)));
 
         var containers = new List<ShaderContainer>();
-        p = exportOffset;
-        for (var i = 0; i < exportCount; i++)
+        var p = summary.ExportOffset;
+        for (var i = 0; i < summary.ExportCount; i++)
         {
             var classIndex = I32(d, ref p);
             p += 4 + 4 + 8 + 4 + 8; // super, outer, object name, archetype, object flags
@@ -165,7 +226,7 @@ internal static class Ue3Package
     private static byte[] Expand(byte[] file)
     {
         var p = 20;
-        FString(file, ref p); // folder name
+        new PackageBytes(file).FString(ref p); // folder name
         p += 4 * 7 + 16;
         var generations = I32(file, ref p);
         p += generations * 12 + 8; // generations, engine and cooker version
@@ -256,24 +317,6 @@ internal static class Ue3Package
         var value = BinaryPrimitives.ReadInt32BigEndian(d.AsSpan(p, 4));
         p += 4;
         return value;
-    }
-
-    /// <summary>An FString: i32 length including the NUL, then the characters; negative means UTF-16.</summary>
-    private static string FString(byte[] d, ref int p)
-    {
-        var length = I32(d, ref p);
-        string text;
-        if (length >= 0)
-        {
-            text = Encoding.Latin1.GetString(d, p, Math.Max(0, length - 1));
-            p += length;
-        }
-        else
-        {
-            text = Encoding.BigEndianUnicode.GetString(d, p, Math.Max(0, -2 * length - 2));
-            p += -2 * length;
-        }
-        return text;
     }
 
     private static InvalidDataException Damaged(string what) => new($"The package is damaged: {what}.");

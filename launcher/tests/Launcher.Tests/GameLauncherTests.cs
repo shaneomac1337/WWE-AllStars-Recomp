@@ -32,6 +32,30 @@ public sealed class GameLauncherTests : IDisposable
     }
 
     [Fact]
+    public void Play_passes_the_mod_librarys_update_folder_and_logs_the_load_report_with_the_session()
+    {
+        var layout = LayoutWithGame();
+        Directory.CreateDirectory(layout.UpdateDataDirectory);
+        File.WriteAllText(Path.Combine(layout.UpdateDataDirectory, "PatchTOC.txt"), "");
+        var mod = Path.Combine(layout.ModsDirectory, "Hogan");
+        Directory.CreateDirectory(Path.Combine(mod, "packages"));
+        File.WriteAllText(Path.Combine(mod, "mod.toml"), "name = \"Hogan\"\ngame = \"TU2\"\nversion = \"1.0\"");
+        new TestPackage().Write(Path.Combine(mod, "packages", "CHR_101_A.xxx"));
+        var mods = new ModLibrary(layout, new KnownGameFiles(["CHR_101_A.xxx"]), new FakeLinker(), new FakeRecycleBin());
+        mods.List();
+        mods.SetEnabled("Hogan", true);
+        var prepared = mods.PrepareForPlay(layout.UpdateDataDirectory, online: false);
+
+        var session = new GameLauncher(layout, _starter, () => Now).Play(prepared);
+
+        var start = Assert.Single(_starter.Starts);
+        Assert.Contains("--update_data_root=" + Path.Combine(_root, "cache", "mod-update"), start.Arguments);
+        Assert.DoesNotContain("--update_data_root=" + layout.UpdateDataDirectory, start.Arguments);
+        Assert.Equal(prepared.Report.Lines(),
+            File.ReadAllLines(Path.Combine(Path.GetDirectoryName(session.LogPath!)!, GameLauncher.ModReportFileName)));
+    }
+
+    [Fact]
     public void Each_session_logs_to_its_own_folder_under_logs()
     {
         var launcher = new GameLauncher(LayoutWithGame(), _starter, () => Now);

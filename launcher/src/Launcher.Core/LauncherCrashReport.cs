@@ -3,8 +3,11 @@ using System.Text;
 
 namespace WweAllStars.Launcher.Core;
 
-/// <summary>What a launcher crash report says about the machine; the GPU is null when unknown.</summary>
-public sealed record LauncherCrashFacts(string Version, string OperatingSystem, string? Gpu);
+/// <summary>
+/// What a launcher crash report says about the machine; the GPU is null when unknown. <see cref="Mods"/>
+/// are the mods turned on, in load order (spec, user story 45), or null when they could not be read.
+/// </summary>
+public sealed record LauncherCrashFacts(string Version, string OperatingSystem, string? Gpu, IReadOnlyList<string>? Mods = null);
 
 /// <summary>
 /// The launcher's own crash report, <c>logs/crash-yyyyMMdd-HHmmss-launcher.zip</c>: a copy of the
@@ -74,6 +77,7 @@ public static class LauncherCrashReport
         version: {facts.Version}
         os: {facts.OperatingSystem}
         gpu: {facts.Gpu ?? "unknown"}
+        mods: {facts.Mods switch { null => "unknown", [] => "none", var mods => string.Join(", ", mods) }}
 
         {error}
 

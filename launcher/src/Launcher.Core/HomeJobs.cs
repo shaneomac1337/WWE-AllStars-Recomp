@@ -9,6 +9,8 @@ public enum HomeJob
     PreparePipelines,
     /// <summary>Checking and unpacking DLC packs into the content folder the game reads.</summary>
     AddDlc,
+    /// <summary>Inspecting and installing mods into the mods folder (ticket 07).</summary>
+    AddMod,
 }
 
 /// <summary>

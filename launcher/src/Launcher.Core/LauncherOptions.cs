@@ -106,6 +106,27 @@ public sealed record LauncherOptions(PortableLayout Layout, bool PrintArguments)
         return xenosRecomp is null ? options : options with { ShaderConverterExecutable = xenosRecomp };
     }
 
+    /// <summary>The hard links the mod library makes; the App sets the platform's, and headless runs copy.</summary>
+    public IFileLinker FileLinker { get; init; } = new CopyingLinker();
+
+    /// <summary>Where the mod library sends a removed mod; the App sets the platform's Recycle Bin.</summary>
+    public IRecycleBin RecycleBin { get; init; } = new PlainDelete();
+
+    /// <summary>The mod library on these options' folders and manifests, with TU2's inner inis.</summary>
+    public ModLibrary NewModLibrary() => new(Layout,
+        KnownGameFiles.From(Manifest, TitleUpdateManifest, ModWrapping.ConfigFilesIn(Layout.UpdateDataDirectory)),
+        FileLinker, RecycleBin);
+
+    private sealed class CopyingLinker : IFileLinker
+    {
+        public bool TryHardLink(string existingFile, string newLink) => false;
+    }
+
+    private sealed class PlainDelete : IRecycleBin
+    {
+        public void Recycle(string folder) => Directory.Delete(folder, recursive: true);
+    }
+
     /// <summary>Setup's shader step, with the XenosRecomp these options name.</summary>
     public ShaderPreparation NewShaderPreparation() =>
         new(new XenosRecompConverter(ShaderConverterExecutable), ShaderConverter.Id);
@@ -288,9 +309,12 @@ public static class HeadlessCommands
         }
     }
 
+    /// <summary>Setup's shader step over the game data and the mods turned on, recorded as the App's is (ticket 09).</summary>
     private static void PrepareShaders(LauncherOptions options, TextWriter output)
     {
         var layout = options.Layout;
+        var library = options.NewModLibrary();
+        var mods = library.ShaderSources();
         var last = (Step: (ShaderStep)(-1), Percent: -1);
         options.NewShaderPreparation().Run(layout.GameDataDirectory, layout.CacheDirectory, new ProgressRelay<ShaderProgress>(value =>
         {
@@ -298,24 +322,40 @@ public static class HeadlessCommands
             if ((value.Step, percent) == last) return;
             last = (value.Step, percent);
             output.WriteLine($"[{percent,3}%] {ShaderStepName(value.Step)}");
-        }), CancellationToken.None);
+        }), CancellationToken.None, mods.Folders);
+        library.ShadersPrepared(mods);
         output.WriteLine($"Shaders ready: {Path.Combine(layout.CacheDirectory, ShaderPackFile.FileName)}");
     }
 
     /// <summary>The prepare's longest wait: past it the game is taken to hang and is ended.</summary>
     public static readonly TimeSpan PipelineTimeout = TimeSpan.FromMinutes(10);
 
+    /// <summary>
+    /// The game's prepare mode on the update folder Play would start it on: the mods in use under
+    /// the player's online setting (ticket 09). The combined content Play builds is removed after.
+    /// </summary>
     private static void PreparePipelines(LauncherOptions options, TextWriter output)
     {
-        var last = (Stage: (PipelineStage)(-1), Percent: -1);
-        var result = new PipelinePreparation(options.Layout, new StreamingPrepareRunner(PipelineTimeout)).RunAsync(
-            new ProgressRelay<PipelineProgress>(value =>
-            {
-                var percent = (int)(value.Fraction * 100);
-                if ((value.Stage, percent) == last) return;
-                last = (value.Stage, percent);
-                output.WriteLine($"[{percent,3}%] {PipelineStageName(value.Stage)} ({value.Done}/{value.Total})");
-            }), CancellationToken.None).GetAwaiter().GetResult();
+        var layout = options.Layout;
+        var library = options.NewModLibrary();
+        var prepared = library.PrepareForPlay(layout.UpdateDataDirectory, SettingsFile.OnlinePlayOn(layout.SettingsFile));
+        PipelineResult result;
+        try
+        {
+            var last = (Stage: (PipelineStage)(-1), Percent: -1);
+            result = new PipelinePreparation(layout, new StreamingPrepareRunner(PipelineTimeout), prepared.UpdateDataRoot).RunAsync(
+                new ProgressRelay<PipelineProgress>(value =>
+                {
+                    var percent = (int)(value.Fraction * 100);
+                    if ((value.Stage, percent) == last) return;
+                    last = (value.Stage, percent);
+                    output.WriteLine($"[{percent,3}%] {PipelineStageName(value.Stage)} ({value.Done}/{value.Total})");
+                }), CancellationToken.None).GetAwaiter().GetResult();
+        }
+        finally
+        {
+            library.RemoveCombinedContent();
+        }
         if (!result.Usable) throw new LauncherException(result.Message);
         output.WriteLine(result.Message);
     }

@@ -173,6 +173,80 @@ public sealed class PipelinePreparationTests : IDisposable
     }
 
     [Fact]
+    public async Task With_mods_in_use_the_run_plans_from_the_update_folder_play_uses()
+    {
+        var overlay = Path.Combine(_layout.CacheDirectory, "mod-update");
+        _runner.Lines = OkRun;
+
+        await new PipelinePreparation(_layout, _runner, overlay).RunAsync(null, TestContext.Current.CancellationToken);
+
+        Assert.Contains("--update_data_root=" + overlay, _runner.Started!.Arguments);
+        Assert.DoesNotContain("--update_data_root=" + _layout.UpdateDataDirectory, _runner.Started.Arguments);
+    }
+
+    private string Overlay => Path.Combine(_layout.CacheDirectory, "mod-update");
+
+    private string Tu2Folder()
+    {
+        Directory.CreateDirectory(_layout.UpdateDataDirectory);
+        File.WriteAllBytes(Path.Combine(_layout.UpdateDataDirectory, "CHR_101_A.xxx"), [1]);
+        return _layout.UpdateDataDirectory;
+    }
+
+    private string OverlayFolder(byte[] package)
+    {
+        Directory.CreateDirectory(Overlay);
+        File.WriteAllBytes(Path.Combine(Overlay, "CHR_101_A.xxx"), package);
+        return Overlay;
+    }
+
+    [Fact]
+    public async Task Prepared_on_TU2s_folder_a_play_with_mods_rebuilds()
+    {
+        Tu2Folder();
+        await Prepare();
+        var overlay = OverlayFolder([2]);
+
+        Assert.Equal(PipelineRebuild.UpdateFolderChanged, new PipelinePreparation(_layout, _runner, overlay).Check(true));
+        Assert.True(PipelineRebuild.UpdateFolderChanged.Rebuilds());
+    }
+
+    [Fact]
+    public async Task Prepared_on_the_mods_folder_other_mods_rebuild()
+    {
+        var overlay = OverlayFolder([2]);
+        _runner.Lines = OkRun;
+        await new PipelinePreparation(_layout, _runner, overlay).RunAsync(null, TestContext.Current.CancellationToken);
+        Assert.Equal(PipelineRebuild.None, new PipelinePreparation(_layout, _runner, overlay).Check(true));
+
+        OverlayFolder([3, 3]);
+
+        Assert.Equal(PipelineRebuild.UpdateFolderChanged, new PipelinePreparation(_layout, _runner, overlay).Check(true));
+    }
+
+    [Fact]
+    public async Task Prepared_on_the_mods_folder_a_play_without_mods_rebuilds()
+    {
+        Tu2Folder();
+        _runner.Lines = OkRun;
+        await new PipelinePreparation(_layout, _runner, OverlayFolder([2])).RunAsync(null, TestContext.Current.CancellationToken);
+
+        Assert.Equal(PipelineRebuild.UpdateFolderChanged, Check());
+    }
+
+    [Fact]
+    public async Task A_record_from_before_the_update_folder_was_kept_counts_as_TU2s_folder()
+    {
+        Tu2Folder();
+        await Prepare();
+        var record = Path.Combine(Store, "launcher-inputs");
+        File.WriteAllLines(record, File.ReadAllLines(record).Where(line => !line.StartsWith("update=", StringComparison.Ordinal)));
+
+        Assert.Equal(PipelineRebuild.None, Check());
+        Assert.Equal(PipelineRebuild.UpdateFolderChanged, new PipelinePreparation(_layout, _runner, OverlayFolder([2])).Check(true));
+    }
+
+    [Fact]
     public async Task The_run_starts_the_game_in_prepare_mode_with_the_layouts_folders()
     {
         await Prepare();

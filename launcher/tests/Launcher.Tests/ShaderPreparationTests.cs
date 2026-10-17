@@ -66,6 +66,19 @@ public sealed class ShaderPreparationTests : IDisposable
     }
 
     [Fact]
+    public void A_mods_package_shaders_are_added_to_the_pack_beside_the_discs()
+    {
+        var modPackages = Path.Combine(_root, "mods", "Hogan Red", "packages");
+        new TestPackage().Add(PixelContainer).Add(TestPackage.Container(vertex: false, 7, 7, 7, 7))
+            .Write(Path.Combine(modPackages, "CHR_101_A.xxx"));
+
+        Preparation().Run(GameData, Cache, null, TestContext.Current.CancellationToken, [modPackages]);
+
+        Assert.Equal([Pixel + ".bin", "ps_462f8e854c09056a.bin", Vertex + ".bin"], _converter.Inputs);
+        Assert.True(ShaderPackFile.Check(PackPath, ConverterId).Ready);
+    }
+
+    [Fact]
     public void A_converter_failure_says_the_game_runs_on_emulated_and_writes_no_pack()
     {
         _converter.Failure = "XenosRecomp could not convert 2 shaders.";

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -21,6 +22,8 @@ public enum PipelineRebuild
     TopUpsChanged,
     /// <summary>A new game build ships another key list (<c>pipeline-keys.txt</c>).</summary>
     KeyListChanged,
+    /// <summary>Play starts the game on another update folder, or its files changed: other mods are in use.</summary>
+    UpdateFolderChanged,
 }
 
 public static class PipelineRebuildExtensions
@@ -40,11 +43,14 @@ public interface IPrepareRunner
 /// Setup's pipeline step (spec, "When the launcher rebuilds pipelines"): runs the game's
 /// headless prepare-pipelines mode (ticket 06), which writes the pipeline store and the
 /// driver cache under <c>cache/native-pipelines</c>. After a finished prepare the launcher
-/// records what it was built from (the pack, the top-ups and the shipped key list); a change
+/// records what it was built from (the pack, the top-ups, the shipped key list and the update
+/// folder with its files); a change
 /// to any of them, a missing store, or the game's "pipelines stale" marker means a rebuild
 /// before the next Play, without a click. Repair always rebuilds.
 /// </summary>
-public sealed class PipelinePreparation(PortableLayout layout, IPrepareRunner runner)
+/// <param name="updateDataRoot">The update folder Play starts the game on (the mods' folder when mods are in use,
+/// ticket 09), so the prepare plans the materials the game will load; TU2's own folder when null.</param>
+public sealed class PipelinePreparation(PortableLayout layout, IPrepareRunner runner, string? updateDataRoot = null)
 {
     public const string StoreFolderName = "native-pipelines";
     public const string KeyListFileName = "pipeline-keys.txt";
@@ -68,6 +74,7 @@ public sealed class PipelinePreparation(PortableLayout layout, IPrepareRunner ru
         if (now.Pack != recorded.Value.Pack) return PipelineRebuild.PackChanged;
         if (now.TopUps != recorded.Value.TopUps) return PipelineRebuild.TopUpsChanged;
         if (now.Keys != recorded.Value.Keys) return PipelineRebuild.KeyListChanged;
+        if (now.Update != recorded.Value.Update) return PipelineRebuild.UpdateFolderChanged;
         return PipelineRebuild.None;
     }
 
@@ -81,7 +88,7 @@ public sealed class PipelinePreparation(PortableLayout layout, IPrepareRunner ru
         {
             Directory.CreateDirectory(layout.LogsDirectory);
             exitCode = await runner.RunAsync(
-                new ProcessStart(layout.GameExecutable, layout.GameDirectory, LaunchArguments.PreparePipelines(layout)),
+                new ProcessStart(layout.GameExecutable, layout.GameDirectory, LaunchArguments.PreparePipelines(layout, updateDataRoot)),
                 line =>
                 {
                     if (output.Read(line) is { } report) progress?.Report(report);
@@ -96,7 +103,7 @@ public sealed class PipelinePreparation(PortableLayout layout, IPrepareRunner ru
         return result;
     }
 
-    private (string Pack, string TopUps, string Keys) CurrentInputs()
+    private (string Pack, string TopUps, string Keys, string Update) CurrentInputs()
     {
         var topUps = Path.Combine(layout.CacheDirectory, ShaderPreparation.TopUpFolderName);
         // A top-up the game converted live had its pipelines made in that session (ticket 22).
@@ -107,7 +114,27 @@ public sealed class PipelinePreparation(PortableLayout layout, IPrepareRunner ru
             : "";
         return (FileHash(Path.Combine(layout.CacheDirectory, ShaderPackFile.FileName)),
             Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(names))),
-            FileHash(Path.Combine(layout.GameDirectory, KeyListFileName)));
+            FileHash(Path.Combine(layout.GameDirectory, KeyListFileName)),
+            UpdateStamp(updateDataRoot ?? layout.UpdateDataDirectory));
+    }
+
+    /// <summary>
+    /// The update folder the game plans from: its path and each file's name, size and time. The
+    /// mods' folder is rebuilt with new files when other mods are in use (ADR-0026).
+    /// </summary>
+    private static string UpdateStamp(string folder)
+    {
+        var stamp = new StringBuilder(Path.GetFullPath(folder)).Append('\n');
+        try
+        {
+            foreach (var file in new DirectoryInfo(folder).EnumerateFiles().OrderBy(file => file.Name, StringComparer.OrdinalIgnoreCase))
+                stamp.Append(CultureInfo.InvariantCulture, $"{file.Name} {file.Length} {file.LastWriteTimeUtc.Ticks}\n");
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            // A missing folder is stamped by its path alone.
+        }
+        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(stamp.ToString())));
     }
 
     private static string FileHash(string path)
@@ -123,7 +150,7 @@ public sealed class PipelinePreparation(PortableLayout layout, IPrepareRunner ru
         }
     }
 
-    private (string Pack, string TopUps, string Keys)? ReadInputs()
+    private (string Pack, string TopUps, string Keys, string Update)? ReadInputs()
     {
         try
         {
@@ -131,10 +158,11 @@ public sealed class PipelinePreparation(PortableLayout layout, IPrepareRunner ru
             if (lines.Length < 4 || lines[0] != InputsHeader) return null;
             var fields = lines.Skip(1).Select(line => line.Split('=', 2)).Where(parts => parts.Length == 2)
                 .ToDictionary(parts => parts[0], parts => parts[1]);
-            return fields.TryGetValue("pack", out var pack) && fields.TryGetValue("topups", out var topUps) &&
-                   fields.TryGetValue("keys", out var keys)
-                ? (pack, topUps, keys)
-                : null;
+            if (!fields.TryGetValue("pack", out var pack) || !fields.TryGetValue("topups", out var topUps) ||
+                !fields.TryGetValue("keys", out var keys))
+                return null;
+            // A prepare recorded before the update folder was recorded (1.3.0) planned from TU2's folder.
+            return (pack, topUps, keys, fields.GetValueOrDefault("update") ?? UpdateStamp(layout.UpdateDataDirectory));
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
@@ -142,13 +170,13 @@ public sealed class PipelinePreparation(PortableLayout layout, IPrepareRunner ru
         }
     }
 
-    private void WriteInputs((string Pack, string TopUps, string Keys) inputs)
+    private void WriteInputs((string Pack, string TopUps, string Keys, string Update) inputs)
     {
         try
         {
             Directory.CreateDirectory(Store);
             File.WriteAllText(Path.Combine(Store, InputsFileName),
-                $"{InputsHeader}\npack={inputs.Pack}\ntopups={inputs.TopUps}\nkeys={inputs.Keys}\n");
+                $"{InputsHeader}\npack={inputs.Pack}\ntopups={inputs.TopUps}\nkeys={inputs.Keys}\nupdate={inputs.Update}\n");
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {

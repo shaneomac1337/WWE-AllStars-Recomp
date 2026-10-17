@@ -12,7 +12,11 @@ internal static class Program
         LauncherOptions options;
         try
         {
-            options = LauncherOptions.Parse(args, AppContext.BaseDirectory);
+            options = LauncherOptions.Parse(args, AppContext.BaseDirectory) with
+            {
+                FileLinker = FilePlatform.Linker,
+                RecycleBin = FilePlatform.RecycleBin,
+            };
         }
         catch (LauncherException error)
         {

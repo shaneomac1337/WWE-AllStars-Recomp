@@ -177,6 +177,19 @@ public sealed class SettingsFile(string path, SettingsSchema schema)
     /// <summary>The Online play choice (Off/On).</summary>
     public const string OnlineKey = "wwe_online";
 
+    /// <summary>The player's Online play setting in the file at <paramref name="path"/>; off when it can't be read.</summary>
+    public static bool OnlinePlayOn(string path)
+    {
+        try
+        {
+            return new SettingsFile(path, SettingsSchema.Committed()).Read().GetValueOrDefault(OnlineKey) == "true";
+        }
+        catch (LauncherException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>The player name other players see: a text row with the gamertag rule.</summary>
     public const string PlayerNameKey = "wwe_online_name";
 

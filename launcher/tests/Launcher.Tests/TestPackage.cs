@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace WweAllStars.Launcher.Tests;
@@ -28,6 +29,12 @@ internal sealed class TestPackage
     /// <summary>False: the package has exports but none of class ShaderCache.</summary>
     public bool HasShaderCache { get; init; } = true;
 
+    /// <summary>
+    /// The name the package was made under, as a top-level <c>Package</c> export the way the disc's
+    /// cooked packages carry it; <see cref="Write"/> and <see cref="Bytes(string)"/> use the file name when this is null.
+    /// </summary>
+    public string? MadeAs { get; init; }
+
     /// <summary>A Xenos shader container: the 36-byte header, then the microcode.</summary>
     public static byte[] Container(bool vertex, params byte[] microcode)
     {
@@ -49,22 +56,55 @@ internal sealed class TestPackage
     public void Write(string path)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllBytes(path, Bytes());
+        File.WriteAllBytes(path, Bytes(Path.GetFileName(path)));
     }
 
+    /// <summary>The package as made under <paramref name="fileName"/> (such as <c>CHR_101_A.xxx</c>), unless <see cref="MadeAs"/> says otherwise.</summary>
+    public byte[] Bytes(string fileName) => Build(MadeAs ?? Path.GetFileNameWithoutExtension(fileName));
+
+    /// <summary>
+    /// The package; it names no package it was made as unless <see cref="MadeAs"/> is set, so
+    /// mod tests pass it through <see cref="ForFile"/> where it is written.
+    /// </summary>
     public byte[] Bytes()
     {
-        var plain = Plain(out var bodyStart);
-        return Compressed switch
-        {
-            Compression.Chunks => ChunkCompressed(plain, bodyStart),
-            Compression.WholeFile => [.. Chunk(plain, littleEndian: true), .. new byte[100]], // the disc pads with zeros
-            _ => plain,
-        };
+        var bytes = Build(MadeAs);
+        if (MadeAs is null) Unnamed.AddOrUpdate(bytes, this);
+        return bytes;
     }
 
-    private static readonly string[] Names =
+    private static readonly ConditionalWeakTable<byte[], TestPackage> Unnamed = new();
+
+    /// <summary>
+    /// <paramref name="bytes"/> as made under <paramref name="fileName"/> when they came from
+    /// <see cref="Bytes()"/> without a name, the way a mod's package is made under its own name
+    /// (ticket 20); any other bytes as they are.
+    /// </summary>
+    public static byte[] ForFile(byte[] bytes, string fileName) =>
+        Unnamed.TryGetValue(bytes, out var package) ? package.Bytes(fileName) : bytes;
+
+    private byte[] Build(string? madeAs)
+    {
+        // Shared by tests running in parallel; _madeAs holds for one build.
+        lock (_records)
+        {
+            _madeAs = madeAs;
+            var plain = Plain(out var bodyStart);
+            return Compressed switch
+            {
+                Compression.Chunks => ChunkCompressed(plain, bodyStart),
+                Compression.WholeFile => [.. Chunk(plain, littleEndian: true), .. new byte[100]], // the disc pads with zeros
+                _ => plain,
+            };
+        }
+    }
+
+    private static readonly string[] BaseNames =
         ["None", "Core", "Class", "ShaderCache", "SeekFreeShaderCache", "Texture2D", "SomeTexture", "FSD_UberPixelShader", "FBinkYCrCbToRGBNoPixelAlphaPixelShader"];
+
+    private string? _madeAs;
+
+    private string[] Names => _madeAs is null ? BaseNames : [.. BaseNames, "Package", _madeAs];
 
     private int NameIndex(string name)
     {
@@ -94,11 +134,14 @@ internal sealed class TestPackage
         var importOffset = file.Position;
         // Import 1: Core.Class ShaderCache (the export's class).
         file.FName(NameIndex("Core")).FName(NameIndex("Class")).U32(0).FName(NameIndex("ShaderCache"));
+        // Import 2: Core.Class Package, the class of the package it was made as.
+        if (_madeAs is not null) file.FName(NameIndex("Core")).FName(NameIndex("Class")).U32(0).FName(NameIndex("Package"));
 
         var exportOffset = file.Position;
-        var exportCount = 2;
-        // Export table: a texture with a component map and net objects (a longer entry), then the cache.
-        var tableSize = (40 + 4 + 12 + 4 + 4 + 8 + 16) + (40 + 4 + 4 + 4 + 16);
+        var exportCount = _madeAs is null ? 2 : 3;
+        // Export table: a texture with a component map and net objects (a longer entry), the
+        // cache, then the top-level package it was made as.
+        var tableSize = (40 + 4 + 12 + 4 + 4 + 8 + 16) + (40 + 4 + 4 + 4 + 16) + (_madeAs is null ? 0 : 40 + 4 + 4 + 4 + 16);
         var dataStart = exportOffset + tableSize;
         var textureData = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 };
         var cacheData = CacheExport(dataStart + textureData.Length);
@@ -111,13 +154,16 @@ internal sealed class TestPackage
             .FName(NameIndex(HasShaderCache ? "SeekFreeShaderCache" : "SomeTexture")).U32(0).U64(0)
             .U32((uint)cacheData.Length).U32((uint)(dataStart + textureData.Length))
             .U32(0).U32(1).U32(0).Zeros(16);
+        if (_madeAs is not null)
+            file.U32(unchecked((uint)-2)).U32(0).U32(0).FName(NameIndex(_madeAs)).U32(0).U64(0)
+                .U32(0).U32(0).U32(0).U32(1).U32(0).Zeros(16);
         if (file.Position != dataStart) throw new InvalidOperationException("export table size");
         file.Bytes(textureData).Bytes(cacheData);
 
         var bytes = file.ToArray();
         BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(8), (uint)bodyStart);
         var c = counts;
-        foreach (var value in new[] { 0, Names.Length, nameOffset, exportCount, exportOffset, 1, importOffset })
+        foreach (var value in new[] { 0, Names.Length, nameOffset, exportCount, exportOffset, _madeAs is null ? 1 : 2, importOffset })
         {
             BinaryPrimitives.WriteInt32BigEndian(bytes.AsSpan(c), value);
             c += 4;

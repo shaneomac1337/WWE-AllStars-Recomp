@@ -185,6 +185,9 @@
           <!-- The player's DLC packs (tu2-dlc ticket 05). -->
           <Button x:Name="DlcButton" Classes="action" Content="DLC"
                   ToolTip.Tip="Add or remove DLC packs you dumped from your own console" />
+          <!-- The player's mods in mods/ (modding ticket 04; ticket 06 adds order, conflicts and Remove). -->
+          <Button x:Name="ModsButton" Classes="action" Content="MODS"
+                  ToolTip.Tip="Turn the mods in your mods folder on or off" />
           <Button x:Name="OpenLogsButton" Classes="action" Content="OPEN LOGS"
                   ToolTip.Tip="Open the folder with the latest session's log" />
           <!-- Shown when the shader pack is missing, stale or lacks shaders the game found (ticket 10). -->
@@ -230,6 +233,9 @@
             <Button x:Name="OnlineRetryButton" Classes="link" Content="Retry" VerticalAlignment="Center"
                     ToolTip.Tip="Ask the game server again" />
           </StackPanel>
+          <!-- With online play on: how many enabled gameplay mods Play leaves out (modding ticket 08). -->
+          <TextBlock x:Name="ModsOnlineText" IsVisible="False" HorizontalAlignment="Right" MaxWidth="400"
+                     TextWrapping="Wrap" TextAlignment="Right" FontSize="14" Foreground="{StaticResource TextBrush}" />
           <ProgressBar x:Name="RepairProgressBar" IsVisible="False" Minimum="0" Maximum="1" Height="6"
                        Width="320" HorizontalAlignment="Right"
                        Foreground="{StaticResource GoldBrush}" Background="#22305A" />
@@ -300,6 +306,48 @@
           </StackPanel>
           <ScrollViewer x:Name="DlcScroll" HorizontalScrollBarVisibility="Disabled" Focusable="True">
             <StackPanel x:Name="DlcList" Spacing="8" />
+          </ScrollViewer>
+        </DockPanel>
+      </Border>
+      <Border x:Name="ModsView" IsVisible="False" Width="560" HorizontalAlignment="Right" DragDrop.AllowDrop="True"
+              Background="{DynamicResource PanelBrush}" BorderBrush="{StaticResource GoldBrush}"
+              BorderThickness="3,0,0,0">
+        <DockPanel Margin="28,20,28,24">
+          <Button x:Name="CloseModsButton" DockPanel.Dock="Bottom" Classes="secondary" Content="Back"
+                  HorizontalAlignment="Right" Margin="0,12,0,0" />
+          <StackPanel DockPanel.Dock="Top" Spacing="8">
+            <TextBlock Classes="display" Text="MODS" FontSize="44" />
+            <TextBlock Classes="body" TextWrapping="Wrap"
+                       Text="Drop a mod here: a zip, 7z or rar, or a folder. New mods start off. Mods you turn on are used the next time you choose Play; your game files are not changed. When two mods replace the same file, the one lower in the list wins." />
+            <!-- Ticket 07: install from a file or folder; drops land on the whole page. Ticket 06: the mods folder. -->
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <Button x:Name="AddModButton" Classes="secondary" Content="Add mod…" />
+              <Button x:Name="AddModFolderButton" Classes="secondary" Content="Add folder…" />
+              <Button x:Name="OpenModsFolderButton" Classes="secondary" Content="Open mods folder" />
+            </StackPanel>
+            <Border x:Name="ModPrompt" IsVisible="False" Background="#66070A14" BorderBrush="{StaticResource GoldBrush}"
+                    BorderThickness="1" Padding="14,12">
+              <StackPanel Spacing="8">
+                <TextBlock x:Name="ModPromptText" FontSize="18" FontWeight="Bold" Foreground="White" TextWrapping="Wrap" />
+                <TextBlock x:Name="ModPromptDetail" Classes="small" TextWrapping="Wrap" />
+                <TextBox x:Name="ModNameBox" MaxLength="64" Watermark="Mod name" />
+                <CheckBox x:Name="ModCosmeticBox" Content="This mod only changes looks" />
+                <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
+                  <Button x:Name="ModPromptNoButton" Classes="secondary" Content="Skip" />
+                  <Button x:Name="ModPromptYesButton" Classes="secondary" Content="Install" />
+                </StackPanel>
+              </StackPanel>
+            </Border>
+            <TextBlock x:Name="ModsStatusText" Classes="body" TextWrapping="Wrap" />
+            <TextBlock Classes="kicker" Text="INSTALLED, IN LOAD ORDER" Margin="0,8,0,0" />
+          </StackPanel>
+          <ScrollViewer x:Name="ModsScroll" HorizontalScrollBarVisibility="Disabled" Focusable="True">
+            <StackPanel Spacing="8">
+              <StackPanel x:Name="ModsList" Spacing="8" />
+              <!-- Ticket 06: each file two mods in use replace, and which one wins; ticket 17 adds the content mods'. -->
+              <TextBlock x:Name="ModConflictsHeading" Classes="kicker" Text="CONFLICTS" Margin="0,10,0,0" IsVisible="False" />
+              <StackPanel x:Name="ModConflictsList" Spacing="4" />
+            </StackPanel>
           </ScrollViewer>
         </DockPanel>
       </Border>

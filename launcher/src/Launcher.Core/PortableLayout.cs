@@ -6,7 +6,7 @@ namespace WweAllStars.Launcher.Core;
 /// The portable folder layout (spec, "Folder layout"): the launcher's folder holds
 /// <c>game</c> (the game exe and its DLLs), <c>gamedata</c> (the extracted disc),
 /// <c>updatedata</c> (Title Update 2, always next to <c>gamedata</c>),
-/// <c>userdata</c>, <c>cache</c> and <c>logs</c>. The game data folder and the game exe
+/// <c>userdata</c>, <c>mods</c>, <c>cache</c> and <c>logs</c>. The game data folder and the game exe
 /// can be put elsewhere; the other folders stay beside the launcher.
 /// </summary>
 public sealed class PortableLayout
@@ -29,6 +29,8 @@ public sealed class PortableLayout
     public string UserDataDirectory => Path.Combine(Root, "userdata");
     public string CacheDirectory => Path.Combine(Root, "cache");
     public string LogsDirectory => Path.Combine(Root, "logs");
+    /// <summary>The player's mods and their load order (modding spec, "Location").</summary>
+    public string ModsDirectory => Path.Combine(Root, "mods");
 
     /// <summary>XenosRecomp with its DLLs and <c>shader_common.h</c>, shipped in the release zip.</summary>
     public string ShaderConverterDirectory => Path.Combine(Root, "xenosrecomp");

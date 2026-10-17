@@ -454,6 +454,65 @@ public sealed class CommandLineTests : IDisposable
         Assert.Contains("game exe is missing", error.Message);
     }
 
+    /// <summary>A mod turned on, with one replacement package (a known game file) carrying a pixel shader.</summary>
+    private void ModOn(string id, string kind)
+    {
+        var mods = Path.Combine(_root, "mods");
+        var folder = Directory.CreateDirectory(Path.Combine(mods, id)).FullName;
+        File.WriteAllText(Path.Combine(folder, ModLibrary.ManifestFileName),
+            $"name = \"{id}\"\nversion = \"1.0\"\ngame = \"TU2\"\nkind = \"{kind}\"\n");
+        new TestPackage().Add(TestPackage.Container(vertex: false, 1, 2, 3, 4)).Write(Path.Combine(folder, "packages", "CHR_101_A.xxx"));
+        File.WriteAllText(Path.Combine(mods, ModLibrary.LoadOrderFileName), $"on | {id}\n");
+    }
+
+    private void Tu2Folder()
+    {
+        var update = Directory.CreateDirectory(Path.Combine(_root, "updatedata")).FullName;
+        File.WriteAllText(Path.Combine(update, "PatchTOC.txt"), "1 0 0 .\\Engine.xxx 0 \r\n");
+    }
+
+    private string ModsUpdateFolder => Path.Combine(_root, "cache", "mod-update");
+
+    [Fact]
+    public void Prepare_pipelines_plans_from_the_mods_update_folder_play_would_use()
+    {
+        Tu2Folder();
+        ModOn("Hogan Red", "cosmetic");
+
+        var error = Assert.Throws<LauncherException>(() =>
+            HeadlessCommands.Run(LauncherOptions.Parse(["--prepare-pipelines"], _root), new StringWriter(), () => Now));
+
+        Assert.Contains("game exe is missing", error.Message);
+        Assert.True(File.Exists(Path.Combine(ModsUpdateFolder, "CHR_101_A.xxx")));
+    }
+
+    [Fact]
+    public void Prepare_pipelines_leaves_gameplay_mods_out_with_online_play_on_as_play_does()
+    {
+        Tu2Folder();
+        ModOn("Faster Pins", "gameplay");
+        Directory.CreateDirectory(Path.Combine(_root, "userdata"));
+        File.WriteAllText(Path.Combine(_root, "userdata", "wweallstars.settings.toml"), "wwe_online = true\n");
+
+        Assert.Throws<LauncherException>(() =>
+            HeadlessCommands.Run(LauncherOptions.Parse(["--prepare-pipelines"], _root), new StringWriter(), () => Now));
+
+        Assert.False(Directory.Exists(ModsUpdateFolder));
+    }
+
+    [Fact]
+    public void Prepare_shaders_reads_the_shaders_of_the_mods_turned_on()
+    {
+        // The game data holds no shaders, so only the mod's reach the converter, which is missing.
+        Directory.CreateDirectory(Path.Combine(_root, "gamedata"));
+        ModOn("Hogan Red", "cosmetic");
+
+        var error = Assert.Throws<LauncherException>(() =>
+            HeadlessCommands.Run(LauncherOptions.Parse(["--prepare-shaders"], _root), new StringWriter(), () => Now));
+
+        Assert.Contains("shader converter is missing", error.Message);
+    }
+
     [Theory]
     [InlineData("plain", "plain")]
     [InlineData("two words", "\"two words\"")]
