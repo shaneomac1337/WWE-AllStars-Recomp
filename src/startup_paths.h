@@ -88,6 +88,10 @@ void ShowRunLauncherMessage();
 // window's native handle (an HWND on Windows), ignored elsewhere.
 void HideWindow(void* native_window);
 
+// Asks the game window to close, as its close button does (WM_CLOSE, so the
+// same close request and shutdown run); the native handle, ignored elsewhere.
+void RequestWindowClose(void* native_window);
+
 // The title tile the launcher cut from the player's own disc for its shortcuts and
 // window: <root>/userdata/icon.ico beside the game's folder. Never shipped.
 std::filesystem::path TitleIconPath(const std::filesystem::path& exe_folder);

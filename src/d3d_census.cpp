@@ -9,6 +9,7 @@
 #include "generated/default/wweallstars_pch.h"
 
 #include "d3d_census.h"
+#include "crash_report.h"
 #include "native/native_renderer.h"
 #include "native/shader_library.h"
 #include "native/shader_topup.h"
@@ -607,6 +608,7 @@ REX_HOOK_RAW(sub_82DBDFF8) {
 #ifdef WWE_D3D_SWEEP
   wwe::sweep::SetDevice(ctx.r3.u32);
 #endif
+  wwe::crash::CrashIfAsked();
   wwe::native::OnPresent(base, ctx.r3.u32, ctx.r4.u32);
   wwe::native::DumpGuestFrontBuffer(base, ctx.r4.u32,
                                     g_presents.load(std::memory_order_relaxed));

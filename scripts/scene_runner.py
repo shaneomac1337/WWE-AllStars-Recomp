@@ -125,11 +125,13 @@ def load_scene(text):
 
 def renderer_failures(report, run):
     """Ticket 10's renderer rules over a Native run's session report: any draw
-    skip, a renderer fallback, Native not active, a debug cvar or an
+    skip, a GPU failure, a renderer fallback, Native not active, a debug cvar or an
     enhancement fails the scene. pipeline_pending is allowed on the first Native run (run 1) only."""
     if report is None:
         return ["no session report (the run did not exit cleanly)"]
     failures = []
+    if report.get("gpu_failure"):
+        failures.append(f"gpu failure: {report['gpu_failure']}")
     if report.get("fallback", "none") != "none":
         failures.append(f"renderer fallback: {report['fallback']}")
     if not report.get("native_active"):

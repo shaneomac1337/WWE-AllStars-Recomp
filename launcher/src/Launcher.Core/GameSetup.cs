@@ -157,11 +157,16 @@ public sealed class GameSetup(DiscManifest manifest, IDiskSpace space, TimeProvi
     public bool HoldsGameFiles(string gameDataDirectory) =>
         manifest.Files.Any(entry => File.Exists(Path.Combine(gameDataDirectory, entry.Path.Replace('/', Path.DirectorySeparatorChar))));
 
-    /// <summary>Checks that <paramref name="isoPath"/> is the supported disc, without extracting.</summary>
-    public void Verify(string isoPath)
+    /// <summary>
+    /// Checks that <paramref name="isoPath"/> is the supported disc, without extracting.
+    /// <paramref name="step"/> hears each step before it starts, for the launcher log (issue #1).
+    /// </summary>
+    public void Verify(string isoPath, Action<string>? step = null)
     {
+        step?.Invoke("Opening the disc image: " + isoPath);
         using var image = OpenImage(isoPath);
-        Identify(image, CancellationToken.None);
+        Identify(image, CancellationToken.None, step);
+        step?.Invoke("The disc is the supported one");
     }
 
     public void Run(string isoPath, string gameDataDirectory, SetupStart start,
@@ -321,9 +326,10 @@ public sealed class GameSetup(DiscManifest manifest, IDiskSpace space, TimeProvi
             "The port only runs that disc; a different version or region will not work.");
 
     /// <summary>The disc's files when its file list, sizes and <c>default.xex</c> match the manifest.</summary>
-    private IReadOnlyList<DiscFile> Identify(XdvdfsImage image, CancellationToken cancel)
+    private IReadOnlyList<DiscFile> Identify(XdvdfsImage image, CancellationToken cancel, Action<string>? step = null)
     {
         IReadOnlyList<DiscFile> files;
+        step?.Invoke("Reading the disc's file list");
         try
         {
             files = image.Files();
@@ -337,6 +343,7 @@ public sealed class GameSetup(DiscManifest manifest, IDiskSpace space, TimeProvi
             if (manifest.Find(file.Path) is not { } entry || entry.Size != file.Size) throw WrongDisc();
 
         var executable = files.First(file => string.Equals(file.Path, manifest.Executable.Path, StringComparison.OrdinalIgnoreCase));
+        step?.Invoke($"Hashing default.xex: {files.Count} files match the manifest, {executable.Size} bytes to hash");
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         image.CopyTo(executable, hash.AppendData, cancel);
         if (Convert.ToHexStringLower(hash.GetHashAndReset()) != manifest.Executable.Sha256) throw WrongDisc();

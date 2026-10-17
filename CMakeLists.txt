@@ -22,6 +22,7 @@ include(generated/rexglue.cmake)
 
 set(WWEALLSTARS_SOURCES
     src/main.cpp
+    src/crash_report.cpp
     src/d3d_census.cpp
     src/frame_capture.cpp
     src/settings_cvars.cpp
@@ -238,6 +239,15 @@ target_compile_options(wweallstars_native_deps PRIVATE -w)
 target_include_directories(wweallstars_native_deps PUBLIC
     ${WWEALLSTARS_ZSTD} ${WWEALLSTARS_XENOSRECOMP_THIRDPARTY}/smol-v/source)
 target_link_libraries(wweallstars PRIVATE wweallstars_native_deps)
+# Crash report (src/crash_report.cpp): the version and commit go in its manifest.
+execute_process(COMMAND git rev-parse --short HEAD WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    OUTPUT_VARIABLE WWEALLSTARS_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+if(NOT WWEALLSTARS_COMMIT)
+    set(WWEALLSTARS_COMMIT "unknown")
+endif()
+target_link_libraries(wweallstars PRIVATE dbghelp)
+target_compile_definitions(wweallstars PRIVATE
+    WWE_VERSION="${WWEALLSTARS_VERSION}" WWE_COMMIT="${WWEALLSTARS_COMMIT}")
 
 # The v0.10.0 source-tree runtime does not propagate ImGui's include directory
 # to the host, although its public UI headers include imgui.h.
@@ -265,6 +275,7 @@ if(WWE_BUILD_TESTS AND REXSDK_DIR)
         tests/native/test_resolve_watch.cpp
         tests/native/test_draw_skips.cpp
         tests/native/test_renderer_fallback.cpp
+        tests/native/test_gpu_failure.cpp
         tests/native/test_frame_dumps.cpp
         tests/native/test_texture_formats.cpp
         tests/native/test_pipeline_key.cpp
@@ -290,6 +301,9 @@ if(WWE_BUILD_TESTS AND REXSDK_DIR)
         tests/core/test_settings_page.cpp
         tests/core/test_graphics_preset.cpp
         tests/core/test_gpu_suggestion.cpp
+        tests/core/test_crash_report.cpp
+        tests/core/test_crash_zip.cpp
+        tests/core/test_crash_dump_request.cpp
         tests/core/test_spin_waits.cpp
         tests/core/test_settings_config.cpp
         tests/core/test_settings_registry.cpp
@@ -297,6 +311,7 @@ if(WWE_BUILD_TESTS AND REXSDK_DIR)
         tests/core/test_text_settings.cpp
         tests/core/test_runtime_choices.cpp
         tests/core/test_options_row.cpp
+        tests/core/test_exit_row.cpp
         tests/core/test_startup_paths.cpp
         tests/core/test_image_check.cpp
         tests/core/test_overlapped_receive.cpp

@@ -5,9 +5,12 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for reporting. A session log makes most problems fixable: in the launcher choose
-        **Open logs**, zip the folder it opens and attach the zip below. A log can contain
-        folder paths that show your Windows user name; check it before posting.
+        Thanks for reporting. After a crash, or when the GPU stopped working, the game saved a
+        crash report: a `crash-<date and time>.zip` in the `logs` folder of your install (the
+        launcher's **OPEN CRASH REPORT** button shows it). Attach that zip below as it is.
+        Without one, a session log makes most problems fixable: in the launcher choose
+        **Open logs**, zip the folder it opens and attach the zip. A log can contain folder
+        paths that show your Windows user name; check it before posting.
 
         Don't attach or link game files, disc images, the title update or DLC.
   - type: input
@@ -63,7 +66,7 @@ body:
   - type: textarea
     id: log
     attributes:
-      label: Session log
-      description: Drag the zipped session folder here.
+      label: Crash report or session log
+      description: Drag the crash report zip (logs\crash-*.zip) here, or the zipped session folder if there is no crash report. If the launcher froze, attach logs\launcher.log too.
     validations:
       required: true

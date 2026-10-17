@@ -1,0 +1,89 @@
+diff --git a/include/rex/system/host_gpu_loss.h b/include/rex/system/host_gpu_loss.h
+new file mode 100644
+index 0000000..c477aea
+--- /dev/null
++++ b/include/rex/system/host_gpu_loss.h
+@@ -0,0 +1,22 @@
++/**
++ * @file        system/host_gpu_loss.h
++ * @brief       An app-side handler for a lost host GPU device
++ *
++ * GraphicsSystem calls the handler when the host GPU device is lost, before it
++ * ends the game with a fatal error. A handler may end the process itself and
++ * not return.
++ *
++ * @license     BSD 3-Clause License
++ *              See LICENSE file in the project root for full license text.
++ */
++#pragma once
++
++namespace rex::system::host_gpu_loss {
++
++using Handler = void (*)();
++
++void SetHandler(Handler handler);
++// The handler, or null when none is set.
++Handler GetHandler();
++
++}  // namespace rex::system::host_gpu_loss
+diff --git a/src/graphics/graphics_system.cpp b/src/graphics/graphics_system.cpp
+index 8179926..d3744e0 100644
+--- a/src/graphics/graphics_system.cpp
++++ b/src/graphics/graphics_system.cpp
+@@ -28,6 +28,7 @@
+ #include <rex/kernel/xboxkrnl/video.h>
+ #include <rex/logging.h>
+ #include <rex/stream.h>
++#include <rex/system/host_gpu_loss.h>
+ #include <rex/system/kernel_state.h>
+ #include <rex/system/xthread.h>
+ #include <rex/thread.h>
+@@ -494,6 +495,9 @@ void GraphicsSystem::OnHostGpuLossFromAnyThread([[maybe_unused]] bool is_respons
+   if (host_gpu_loss_reported_.test_and_set(std::memory_order_relaxed)) {
+     return;
+   }
++  if (system::host_gpu_loss::Handler handler = system::host_gpu_loss::GetHandler()) {
++    handler();
++  }
+   rex::FatalError("Graphics device lost (probably due to an internal error)");
+ }
+ 
+diff --git a/src/system/CMakeLists.txt b/src/system/CMakeLists.txt
+index 31f69dc..12d141a 100644
+--- a/src/system/CMakeLists.txt
++++ b/src/system/CMakeLists.txt
+@@ -44,6 +44,7 @@ set(REXSYSTEM_SOURCES
+     function_dispatcher.cpp
+     gpu_plugin_loader.cpp
+     external_frame.cpp
++    host_gpu_loss.cpp
+     thread.cpp
+     thread_state.cpp
+     xex_module.cpp
+diff --git a/src/system/host_gpu_loss.cpp b/src/system/host_gpu_loss.cpp
+new file mode 100644
+index 0000000..e6e3862
+--- /dev/null
++++ b/src/system/host_gpu_loss.cpp
+@@ -0,0 +1,21 @@
++/**
++ * @file        system/host_gpu_loss.cpp
++ * @brief       An app-side handler for a lost host GPU device
++ *
++ * @license     BSD 3-Clause License
++ *              See LICENSE file in the project root for full license text.
++ */
++#include <rex/system/host_gpu_loss.h>
++
++#include <atomic>
++
++namespace rex::system::host_gpu_loss {
++namespace {
++std::atomic<Handler> handler{nullptr};
++}  // namespace
++
++void SetHandler(Handler new_handler) { handler.store(new_handler); }
++
++Handler GetHandler() { return handler.load(); }
++
++}  // namespace rex::system::host_gpu_loss

@@ -158,6 +158,10 @@ class RendererRulesTests(unittest.TestCase):
                                      run=1)
         self.assertTrue(any("stale_shader_pack" in f for f in failures))
 
+    def test_a_gpu_failure_fails_with_its_vulkan_result(self):
+        failures = renderer_failures(report(gpu_failure="VK_ERROR_DEVICE_LOST"), run=1)
+        self.assertEqual(failures, ["gpu failure: VK_ERROR_DEVICE_LOST"])
+
     def test_native_not_active_fails(self):
         self.assertTrue(renderer_failures(report(native_active=False), run=1))
 

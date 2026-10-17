@@ -16,7 +16,10 @@ namespace WweAllStars.Launcher.Core;
 /// <c>--extract</c> unpacks it next to the game data (it requires TU2), <c>--repair</c> repairs the
 /// update folder from it, and alone it adds TU2 to a finished install (the 0.9.0 upgrade).
 /// <c>--tu-manifest</c> replaces the built-in TU2 manifest. <c>--add-dlc &lt;path&gt;</c> checks and
-/// installs the DLC packs in a package, folder or archive.
+/// installs the DLC packs in a package, folder or archive. <c>--reduce-effects</c> opens the
+/// window without Mica and animations, for a launcher that freezes before its settings open.
+/// <c>--debug-crash</c> and <c>--debug-crash-task</c> make the window launcher throw on its UI
+/// thread or on a background task, to test its crash report.
 /// </summary>
 public sealed record LauncherOptions(PortableLayout Layout, bool PrintArguments)
 {
@@ -30,6 +33,8 @@ public sealed record LauncherOptions(PortableLayout Layout, bool PrintArguments)
     public string? TitleUpdate { get; init; }
     public string? TitleUpdateManifestPath { get; init; }
     public string? AddDlc { get; init; }
+    public bool ReduceEffects { get; init; }
+    public LauncherDebugCrash DebugCrash { get; init; }
 
     /// <summary>XenosRecomp: in the release, <c>xenosrecomp/XenosRecomp.exe</c> beside the launcher.</summary>
     public string ShaderConverterExecutable
@@ -54,7 +59,8 @@ public sealed record LauncherOptions(PortableLayout Layout, bool PrintArguments)
         string root = launcherDirectory;
         string? gameData = null, game = null, verify = null, extract = null, repair = null, manifest = null, xenosRecomp = null,
             titleUpdate = null, titleUpdateManifest = null, addDlc = null;
-        bool printArguments = false, restart = false, prepareShaders = false, preparePipelines = false;
+        bool printArguments = false, restart = false, prepareShaders = false, preparePipelines = false, reduceEffects = false;
+        var debugCrash = LauncherDebugCrash.None;
         for (var i = 0; i < args.Count; i++)
         {
             switch (args[i])
@@ -74,6 +80,9 @@ public sealed record LauncherOptions(PortableLayout Layout, bool PrintArguments)
                 case "--title-update": titleUpdate = Value(args, ref i); break;
                 case "--tu-manifest": titleUpdateManifest = Value(args, ref i); break;
                 case "--add-dlc": addDlc = Value(args, ref i); break;
+                case "--reduce-effects": reduceEffects = true; break;
+                case "--debug-crash": debugCrash = LauncherDebugCrash.UiThread; break;
+                case "--debug-crash-task": debugCrash = LauncherDebugCrash.BackgroundTask; break;
                 default: throw new LauncherException($"Unknown option: {args[i]}");
             }
         }
@@ -91,6 +100,8 @@ public sealed record LauncherOptions(PortableLayout Layout, bool PrintArguments)
             TitleUpdate = titleUpdate,
             TitleUpdateManifestPath = titleUpdateManifest,
             AddDlc = addDlc,
+            ReduceEffects = reduceEffects,
+            DebugCrash = debugCrash,
         };
         return xenosRecomp is null ? options : options with { ShaderConverterExecutable = xenosRecomp };
     }
@@ -365,3 +376,6 @@ public static class HeadlessCommands
         return text.Append('\\', slashes * 2).Append('"').ToString();
     }
 }
+
+/// <summary>Where <c>--debug-crash</c> / <c>--debug-crash-task</c> make the launcher throw.</summary>
+public enum LauncherDebugCrash { None, UiThread, BackgroundTask }

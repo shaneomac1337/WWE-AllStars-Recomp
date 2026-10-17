@@ -193,6 +193,9 @@
           <!-- Shown after a session fell back to Emulated for a reason other than the shader pack (ticket 20). -->
           <Button x:Name="SwitchToEmulatedButton" Classes="action" Content="SWITCH TO EMULATED" IsVisible="False"
                   ToolTip.Tip="Start the game on the Emulated renderer from now on (change it back in Settings)" />
+          <!-- Shown after an exit with a crash report, or at start when there are unseen reports (gpu-robustness 03). -->
+          <Button x:Name="CrashReportButton" Classes="action" Content="OPEN CRASH REPORT" IsVisible="False"
+                  ToolTip.Tip="Show the crash report in its folder; attach it to your GitHub issue" />
           <!-- Desktop and Start shortcuts with the title tile from the player's disc (ticket 15). -->
           <Button x:Name="CreateShortcutsButton" Classes="action" Content="SHORTCUTS"
                   ToolTip.Tip="Add WWE All Stars to the desktop and the Start menu" />
@@ -267,6 +270,10 @@
                         Foreground="{StaticResource TextBrush}" />
               <TextBlock x:Name="UpdateNote" Classes="small" TextWrapping="Wrap"
                          Text="Asks GitHub once per launch whether a newer release exists, and shows a link. Nothing is downloaded." />
+              <CheckBox x:Name="ReduceEffects" Content="Reduce effects" FontSize="17" Margin="0,10,0,0"
+                        Foreground="{StaticResource TextBrush}" />
+              <TextBlock Classes="small" TextWrapping="Wrap"
+                         Text="Turns off the see-through window backdrop and the moving artwork. Try it if the launcher freezes or runs slowly. Starting the launcher with --reduce-effects does the same." />
             </StackPanel>
           </ScrollViewer>
         </DockPanel>

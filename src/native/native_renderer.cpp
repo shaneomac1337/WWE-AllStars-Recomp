@@ -32,6 +32,7 @@
 #include <rex/ui/vulkan/util.h>
 #include <rex/ui/presenter.h>
 
+#include "crash_report.h"
 #include "native/debug_labels.h"
 #include "native/geometry_cache.h"
 #include "native/gpu_timer.h"
@@ -45,6 +46,7 @@
 #include "native/draw_skips.h"
 #include "native/frame_dumps.h"
 #include "native/renderer_fallback.h"
+#include "native/gpu_failure.h"
 #include "native/shader_pack.h"
 #include "native/shader_library.h"
 #include "native/shader_topup.h"
@@ -91,6 +93,9 @@ REXCVAR_DEFINE_UINT32(wwe_native_debug_null_slots, 0, "WWEAllStars",
                       "default texture");
 REXCVAR_DEFINE_BOOL(wwe_native_debug_no_blend, false, "WWEAllStars",
                     "Native renderer debugging: disable blending");
+REXCVAR_DEFINE_BOOL(wwe_native_debug_fail_submit, false, "WWEAllStars",
+                    "Native renderer debugging: fail the next queue submit with "
+                    "VK_ERROR_DEVICE_LOST, which ends the session as a GPU failure");
 REXCVAR_DEFINE_UINT64(wwe_native_trace_ps, 0, "WWEAllStars",
                       "Native renderer debugging: in traced frames, dump the constants of draws "
                       "using this pixel shader hash");
@@ -125,6 +130,9 @@ REXCVAR_DEFINE_BOOL(wwe_native_swap_half2, true, "WWEAllStars",
                     "32-bit vertex byte swap");
 
 namespace wwe::native {
+
+// Defined below; any Vulkan call whose failure means the device is gone ends here.
+[[noreturn]] void EndSessionWithGpuFailure(VkResult result, const char* call);
 
 namespace {
 
@@ -406,6 +414,8 @@ struct State {
   std::mutex skips_mutex;
   DrawSkips skips;
   Fallback fallback = Fallback::kNone;
+  // The VkResult of a GPU failure, for the session report; 0 if none.
+  std::atomic<int32_t> gpu_failure{0};
   // What the current frame spent its time on, logged when it runs long.
   struct Hitch {
     std::chrono::steady_clock::time_point last_present;
@@ -575,12 +585,15 @@ void DeliverReadbacks() {
   for (const State::PendingReadback& p : g.pending_readbacks) {
     // A slot's fence is only reset when the slot records again, three frames
     // on, so until then its status is that of frame p.frame.
-    const bool done =
-        g.frame >= p.frame + kFramesInFlight ||
-        dfn.vkGetFenceStatus(g_vk.vk_device, g.slots[p.frame % kFramesInFlight].fence) ==
-            VK_SUCCESS;
-    if (!done) {
-      break;
+    if (g.frame < p.frame + kFramesInFlight) {
+      const VkResult status =
+          dfn.vkGetFenceStatus(g_vk.vk_device, g.slots[p.frame % kFramesInFlight].fence);
+      if (status < 0) {
+        EndSessionWithGpuFailure(status, "vkGetFenceStatus");
+      }
+      if (status != VK_SUCCESS) {
+        break;
+      }
     }
     void* mapped = nullptr;
     if (dfn.vkMapMemory(g_vk.vk_device, p.memory, 0, VK_WHOLE_SIZE, 0, &mapped) == VK_SUCCESS) {
@@ -855,7 +868,10 @@ void BeginFrameIfNeeded() {
   const uint32_t slot_index = uint32_t(g.frame % kFramesInFlight);
   FrameSlot& slot = g.slots[slot_index];
   const auto wait_start = std::chrono::steady_clock::now();
-  dfn.vkWaitForFences(g_vk.vk_device, 1, &slot.fence, VK_TRUE, UINT64_MAX);
+  const VkResult waited = dfn.vkWaitForFences(g_vk.vk_device, 1, &slot.fence, VK_TRUE, UINT64_MAX);
+  if (waited < 0) {
+    EndSessionWithGpuFailure(waited, "vkWaitForFences");
+  }
   g.hitch.fence_wait_ns += NsSince(wait_start);
   // After the wait: readbacks of the slot's previous frame are complete.
   DeliverReadbacks();
@@ -1567,10 +1583,11 @@ void OnExit() {
     }
     std::fputs(fmt::format(R"({{"native_requested": {}, "native_active": {}, "fallback": "{}", )"
                            R"("frames": {}, "debug_cvars": [{}], "enhancements": [{}], )"
-                           R"("draw_skips": {}}})",
+                           R"("draw_skips": {}, "gpu_failure": "{}"}})",
                            REXCVAR_GET(wwe_native_renderer) ? "true" : "false",
                            g.device ? "true" : "false", FallbackName(g.fallback), g.frame,
-                           debug_cvars, enhancements, g.skips.Json())
+                           debug_cvars, enhancements, g.skips.Json(),
+                           g.gpu_failure ? VkResultName(g.gpu_failure) : std::string())
                    .c_str(),
                file);
     std::fputc('\n', file);
@@ -1579,6 +1596,31 @@ void OnExit() {
     REXLOG_WARN("native renderer: cannot write report {} (relative paths start in the "
                 "executable's directory)",
                 path);
+  }
+}
+
+// A GPU failure ends the session (ADR-0025): no device recreation, no switch
+// to Emulated mid-session. The launcher offers Emulated for the next start.
+// Call it with no queue held: the report's message box stays up a while. A
+// lost device often fails on two threads at once (render and present); the
+// second waits here for the first to end the process.
+[[noreturn]] void EndSessionWithGpuFailure(VkResult result, const char* call) {
+  int32_t none = 0;
+  if (!g.gpu_failure.compare_exchange_strong(none, int32_t(result))) {
+    for (;;) std::this_thread::sleep_for(std::chrono::hours(1));
+  }
+  REXLOG_ERROR("{}", GpuFailureLine(int32_t(result), call));
+  OnExit();
+  wwe::crash::WriteGpuFailureReport(GpuFailureReason(int32_t(result), call));
+  rex::FlushLogging();
+  std::_Exit(kGpuFailureExitCode);
+}
+
+void OnHostGpuLoss() {
+  if (IsEnabled()) {
+    // The SDK reports a loss for VK_ERROR_DEVICE_LOST from the presenter's
+    // acquire or present, or the GPU plugin's fence wait or submit.
+    EndSessionWithGpuFailure(VK_ERROR_DEVICE_LOST, "SDK");
   }
 }
 
@@ -2486,7 +2528,10 @@ void WriteRgbImage(const std::string& path, const uint8_t* rgb, uint32_t width, 
 void WriteFrameDump(VkBuffer buffer, VkDeviceMemory memory, VkFence fence,
                     const std::string& path) {
   const VulkanDevice::Functions& dfn = *g_vk.dfn;
-  dfn.vkWaitForFences(g_vk.vk_device, 1, &fence, VK_TRUE, UINT64_MAX);
+  const VkResult waited = dfn.vkWaitForFences(g_vk.vk_device, 1, &fence, VK_TRUE, UINT64_MAX);
+  if (waited < 0) {
+    EndSessionWithGpuFailure(waited, "vkWaitForFences");
+  }
   void* mapped = nullptr;
   if (dfn.vkMapMemory(g_vk.vk_device, memory, 0, VK_WHOLE_SIZE, 0, &mapped) == VK_SUCCESS) {
     VkMappedMemoryRange range = {VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE};
@@ -2703,13 +2748,16 @@ void OnPresent(const uint8_t* base, uint32_t device, uint32_t front_buffer) {
   submit_info.commandBufferCount = 2;
   submit_info.pCommandBuffers = command_buffers;
   g.recording = false;
+  VkResult submitted;
   {
     VulkanDevice::Queue::Acquisition queue =
         g.device->AcquireQueue(g.device->queue_family_graphics_compute(), 0);
-    if (dfn.vkQueueSubmit(queue.queue(), 1, &submit_info, slot.fence) != VK_SUCCESS) {
-      REXLOG_ERROR("native renderer: vkQueueSubmit failed");
-      return;
-    }
+    submitted = REXCVAR_GET(wwe_native_debug_fail_submit)
+                    ? VK_ERROR_DEVICE_LOST
+                    : dfn.vkQueueSubmit(queue.queue(), 1, &submit_info, slot.fence);
+  }
+  if (submitted != VK_SUCCESS) {
+    EndSessionWithGpuFailure(submitted, "vkQueueSubmit");
   }
 
   if (dump_buffer) {

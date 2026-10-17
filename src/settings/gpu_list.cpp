@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include <fmt/format.h>
 #include <rex/cvar.h>
 #include <rex/logging.h>
 #include <rex/runtime.h>
@@ -133,6 +134,15 @@ void LogGpu(rex::Runtime* runtime) {
                 "cannot run the game",
                 name, index, wanted);
   }
+}
+
+std::pair<std::string, std::string> RuntimeGpuAndDriver(rex::Runtime* runtime) {
+  auto* provider = Provider(runtime);
+  if (!provider || !provider->vulkan_device()) {
+    return {};
+  }
+  const auto& properties = provider->vulkan_device()->properties();
+  return {properties.deviceName, fmt::format("0x{:08X}", properties.driverVersion)};
 }
 
 std::string RuntimeSuggestedPreset(rex::Runtime* runtime) {

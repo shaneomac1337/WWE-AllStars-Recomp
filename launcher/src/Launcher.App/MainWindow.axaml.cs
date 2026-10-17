@@ -79,7 +79,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         RestorePlacement();
-        ApplyMaterial();
+        ApplyEffects();
         VersionText.Text = "Version " + ProductVersion();
         NoticesText.Text = ThirdPartyNotices();
         TitleBar.PointerPressed += OnTitleBarPressed;
@@ -122,14 +122,17 @@ public partial class MainWindow : Window
         UpdateLink.Click += OnOpenRelease;
         OnlineRetryButton.Click += (_, _) => CheckGameServer(force: true);
         OpenLogsButton.Click += OnOpenLogs;
+        CrashReportButton.Click += OnOpenCrashReport;
         CreateShortcutsButton.IsVisible = ShortcutPlatform.Current is not null;
         CreateShortcutsButton.Click += OnCreateShortcuts;
         RepairButton.Click += OnRepair;
         CancelRepairButton.Click += (_, _) => _jobs.Cancel(HomeJob.Repair);
         CheckForUpdates.IsChecked = _preferences.CheckForUpdates;
         // No repository to ask yet (ADR-0014): the setting would do nothing.
-        LauncherHeading.IsVisible = CheckForUpdates.IsVisible = UpdateNote.IsVisible = _updates.IsAvailable;
+        CheckForUpdates.IsVisible = UpdateNote.IsVisible = _updates.IsAvailable;
         CheckForUpdates.IsCheckedChanged += OnCheckForUpdatesChanged;
+        ReduceEffects.IsChecked = _preferences.ReduceEffects;
+        ReduceEffects.IsCheckedChanged += OnReduceEffectsChanged;
         ChooseImageButton.Click += OnChooseImage;
         ChooseTitleUpdateButton.Click += OnChooseTitleUpdate;
         ChooseTitleUpdateFolderButton.Click += OnChooseTitleUpdateFolder;
@@ -151,6 +154,7 @@ public partial class MainWindow : Window
             if (running is not null) Watch(running);
             ShowCurrentScreen();
             ShowUpdateWhenFound();
+            ShowUnseenCrashReports();
         };
     }
 
@@ -360,7 +364,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void UpdateMotion()
     {
-        var motion = LauncherMotion.Allowed(IsActive, WindowState == WindowState.Minimized, _game.IsRunning);
+        var motion = LauncherMotion.Allowed(IsActive, WindowState == WindowState.Minimized, _game.IsRunning, EffectsReduced);
         KeyArtImage.Classes.Set("kenburns", motion && KeyArtLayer.IsVisible);
         BigBackdropBurst.Classes.Set("spin", motion && Backdrop.IsVisible);
         SmallBackdropBurst.Classes.Set("spin", motion && Backdrop.IsVisible);
@@ -371,6 +375,18 @@ public partial class MainWindow : Window
     /// Windows 11 gives the window its Mica (or Acrylic) material; the base then lets it through.
     /// Anywhere else the base stays solid, so the screens look the same without it.
     /// </summary>
+    private bool EffectsReduced => LauncherMotion.EffectsReduced(_preferences.ReduceEffects, App.Options.ReduceEffects);
+
+    /// <summary>Reduced effects ask for no material at all: no Mica, no Acrylic (GitHub issue #1).</summary>
+    private void ApplyEffects()
+    {
+        TransparencyLevelHint = EffectsReduced
+            ? [WindowTransparencyLevel.None]
+            : [WindowTransparencyLevel.Mica, WindowTransparencyLevel.AcrylicBlur, WindowTransparencyLevel.None];
+        ApplyMaterial();
+        UpdateMotion();
+    }
+
     private void ApplyMaterial()
     {
         var material = ActualTransparencyLevel == WindowTransparencyLevel.Mica ||
@@ -400,7 +416,7 @@ public partial class MainWindow : Window
 
     private async Task<string?> PickImage()
     {
-        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        var files = await PickFiles(new FilePickerOpenOptions
         {
             Title = "Choose your WWE All Stars disc image",
             AllowMultiple = false,
@@ -410,17 +426,40 @@ public partial class MainWindow : Window
                 FilePickerFileTypes.All,
             ],
         });
-        return files.Count > 0 ? files[0].TryGetLocalPath() : null;
+        return files.FirstOrDefault();
+    }
+
+    /// <summary>
+    /// The file picker, logged before it opens and when it returns (GitHub issue #1: the launcher
+    /// froze on a picked disc image and the log must show where).
+    /// </summary>
+    private async Task<IReadOnlyList<string>> PickFiles(FilePickerOpenOptions options)
+    {
+        App.Log.Write($"Opening the file picker: {options.Title}");
+        var files = await StorageProvider.OpenFilePickerAsync(options);
+        App.Log.Write($"The file picker returned {files.Count} item(s)");
+        var paths = files.Select(file => file.TryGetLocalPath()).OfType<string>().ToList();
+        if (paths.Count > 0) App.Log.Write("Picked: " + string.Join(", ", paths));
+        return paths;
+    }
+
+    private async Task<string?> PickFolder(FolderPickerOpenOptions options)
+    {
+        App.Log.Write($"Opening the folder picker: {options.Title}");
+        var folders = await StorageProvider.OpenFolderPickerAsync(options);
+        App.Log.Write($"The folder picker returned {folders.Count} item(s)");
+        var path = folders.Count > 0 ? folders[0].TryGetLocalPath() : null;
+        if (path is not null) App.Log.Write("Picked: " + path);
+        return path;
     }
 
     private async void OnChooseFolder(object? sender, RoutedEventArgs e)
     {
-        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
-        {
-            Title = "Choose where the game files go (about 6.5 GB)",
-            AllowMultiple = false,
-        });
-        if (folders.Count == 0 || folders[0].TryGetLocalPath() is not { } parent) return;
+        if (await PickFolder(new FolderPickerOpenOptions
+            {
+                Title = "Choose where the game files go (about 6.5 GB)",
+                AllowMultiple = false,
+            }) is not { } parent) return;
         // The game files get their own folder inside the one the player picks.
         SetGameDataDirectory(Path.Combine(parent, "gamedata"));
     }
@@ -466,23 +505,22 @@ public partial class MainWindow : Window
 
     private async void OnChooseTitleUpdateFolder(object? sender, RoutedEventArgs e)
     {
-        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
-        {
-            Title = "Choose a folder with Title Update 2 (a USB drive or a dumped Content folder)",
-            AllowMultiple = false,
-        });
-        if (folders.Count > 0 && folders[0].TryGetLocalPath() is { } path) ChooseTitleUpdate(path);
+        if (await PickFolder(new FolderPickerOpenOptions
+            {
+                Title = "Choose a folder with Title Update 2 (a USB drive or a dumped Content folder)",
+                AllowMultiple = false,
+            }) is { } path) ChooseTitleUpdate(path);
     }
 
     private async Task<string?> PickTitleUpdate()
     {
-        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        var files = await PickFiles(new FilePickerOpenOptions
         {
             Title = "Choose Title Update 2 (tu00000005_00000000, a TU_ file, or a zip, 7z or rar)",
             AllowMultiple = false,
             FileTypeFilter = [FilePickerFileTypes.All],
         });
-        return files.Count > 0 ? files[0].TryGetLocalPath() : null;
+        return files.FirstOrDefault();
     }
 
     /// <summary>Finds and checks Title Update 2 in a file, folder or archive; says what was found otherwise.</summary>
@@ -559,23 +597,21 @@ public partial class MainWindow : Window
 
     private async Task<IReadOnlyList<string>> PickDlcFiles()
     {
-        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        return await PickFiles(new FilePickerOpenOptions
         {
             Title = "Choose DLC packages (or zip, 7z or rar files with packs inside); several at once work",
             AllowMultiple = true,
             FileTypeFilter = [FilePickerFileTypes.All],
         });
-        return files.Select(file => file.TryGetLocalPath()).OfType<string>().ToList();
     }
 
     private async Task<string?> PickDlcFolder()
     {
-        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        return await PickFolder(new FolderPickerOpenOptions
         {
             Title = "Choose a folder with DLC packs (a USB drive or a dumped Content folder)",
             AllowMultiple = false,
         });
-        return folders.Count > 0 ? folders[0].TryGetLocalPath() : null;
     }
 
     /// <summary>Checks and installs every DLC pack in a file, folder or archive. Not while the game runs.</summary>
@@ -753,7 +789,12 @@ public partial class MainWindow : Window
 
     private async void ChooseImage(string path)
     {
-        if (_setupCancel is not null) return;
+        if (_setupCancel is not null)
+        {
+            App.Log.Write("Disc image ignored: setup is running");
+            return;
+        }
+        App.Log.Write("Disc image chosen: " + path);
         _imagePath = path;
         ImagePathText.Text = path;
         SetupStatusText.Text = "Checking the disc image…";
@@ -761,7 +802,7 @@ public partial class MainWindow : Window
         try
         {
             // A wrong file is refused within seconds: only the file list and default.xex are read.
-            await Task.Run(() => _setup.Verify(path));
+            await Task.Run(() => _setup.Verify(path, App.Log.Write));
             message = "This is the supported disc. Choose " + StartSetupButton.Content + " to copy the game files.";
         }
         catch (SetupException error)
@@ -772,8 +813,10 @@ public partial class MainWindow : Window
         {
             message = "The disc image cannot be read: " + error.Message;
         }
+        App.Log.Write("Disc image check finished: " + message);
         // A later choice or a setup that started meanwhile owns the status line now.
         if (_imagePath == path && _setupCancel is null) SetupStatusText.Text = message;
+        App.Log.Write("Disc image check shown");
     }
 
     private async void RunSetup(SetupStart start)
@@ -1116,17 +1159,29 @@ public partial class MainWindow : Window
             : "Shaders ready: the game can run on Native.");
     }
 
-    private void OnSwitchToEmulated(object? sender, RoutedEventArgs e)
+    // Switches and plays in one step (gpu-robustness story 3).
+    private async void OnSwitchToEmulated(object? sender, RoutedEventArgs e)
     {
         try
         {
             new SettingsFile(_layout.SettingsFile, SettingsSchema.Committed()).SwitchToEmulated();
             SwitchToEmulatedButton.IsVisible = false;
-            StatusText.Text = "The game will start on Emulated. Choose Native again in Settings.";
+            StatusText.Text = "The game starts on Emulated. Choose Native again in Settings.";
         }
         catch (Exception error) when (error is LauncherException or IOException or UnauthorizedAccessException)
         {
             StatusText.Text = $"Could not save the renderer setting: {error.Message}";
+            return;
+        }
+        // An exception leaving an async void handler would close the launcher.
+        try
+        {
+            await Play();
+        }
+        catch (Exception error)
+        {
+            StatusText.Text = $"Could not start the game: {error.Message}";
+            UpdatePlayButton();
         }
     }
 
@@ -1194,6 +1249,21 @@ public partial class MainWindow : Window
         if (_update is not null) await this.Launcher.LaunchUriAsync(_update.ReleasePage);
     }
 
+    private void OnReduceEffectsChanged(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            _preferences = _preferences.With(reduceEffects: ReduceEffects.IsChecked == true);
+            _preferences.Save(App.Options.Layout);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            StatusText.Text = $"Could not save the effects setting: {error.Message}";
+        }
+        App.Log.Write($"Reduce effects: {(_preferences.ReduceEffects ? "on" : "off")}");
+        ApplyEffects();
+    }
+
     private void OnCheckForUpdatesChanged(object? sender, RoutedEventArgs e)
     {
         try
@@ -1225,12 +1295,49 @@ public partial class MainWindow : Window
             PlayButton.IsEnabled = _jobs.CanPlay(gameRunning: false);
             if (exited.IsCompletedSuccessfully) ShowShaderOffer(gameAskedForIt: exited.Result.OfferShaderRebuild);
             SwitchToEmulatedButton.IsVisible = exited.IsCompletedSuccessfully && exited.Result.OfferEmulated;
+            _crashReport = exited.IsCompletedSuccessfully ? exited.Result.CrashReportPath : null;
+            CrashReportButton.IsVisible = _crashReport is not null;
+            if (_crashReport is not null) new CrashReports(_layout.LogsDirectory).MarkSeen(_crashReport);
             StatusText.Text = exited.IsCompletedSuccessfully
                 ? exited.Result.Message
                 : "The launcher lost track of the game. Open logs to see what happened.";
             if (exited.IsCompletedSuccessfully && _shaders.StatusOf(_layout.CacheDirectory).AddsAfterSession)
                 PrepareShaders(afterSession: true);
         }), TaskScheduler.Default);
+    }
+
+    // What OPEN CRASH REPORT shows: one report (selected in its folder) or the logs folder.
+    private string? _crashReport;
+
+    /// <summary>Crash reports saved since the launcher last looked, e.g. by a game started without it.</summary>
+    private void ShowUnseenCrashReports()
+    {
+        var unseen = new CrashReports(_layout.LogsDirectory).TakeUnseen();
+        if (unseen.Count == 0) return;
+        _crashReport = unseen.Count == 1 ? unseen[0] : _layout.LogsDirectory;
+        CrashReportButton.Content = unseen.Count == 1 ? "OPEN CRASH REPORT" : "OPEN CRASH REPORTS";
+        CrashReportButton.IsVisible = true;
+        StatusText.Text = unseen.Count == 1
+            ? "The game saved a crash report since the launcher last ran. Attach it to your GitHub issue."
+            : $"The game saved {unseen.Count} crash reports since the launcher last ran. Attach them to your GitHub issue.";
+    }
+
+    private async void OnOpenCrashReport(object? sender, RoutedEventArgs e)
+    {
+        if (_crashReport is not { } target) return;
+        try
+        {
+            if (File.Exists(target) && OperatingSystem.IsWindows())
+                System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{target}\"")?.Dispose();
+            else if (!await Launcher.LaunchDirectoryInfoAsync(new DirectoryInfo(
+                         File.Exists(target) ? Path.GetDirectoryName(target)! : target)))
+                StatusText.Text = $"Could not open the crash report: {target}";
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException
+                                         or System.ComponentModel.Win32Exception)
+        {
+            StatusText.Text = $"Could not open the crash report: {error.Message}";
+        }
     }
 
     private async void OnOpenLogs(object? sender, RoutedEventArgs e)
@@ -1292,6 +1399,7 @@ public partial class MainWindow : Window
         var gpus = await GpusAsync();
         if (_gpus is not null) return;
         _gpus = gpus;
+        if (gpus.Count > 0) LauncherCrashHandler.KnownGpu = string.Join("; ", gpus.Select(gpu => gpu.Name));
         if (!SettingsView.IsVisible || gpus.Count == 0) return;
         try
         {

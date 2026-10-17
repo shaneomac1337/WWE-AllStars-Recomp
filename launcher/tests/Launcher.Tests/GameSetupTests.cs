@@ -261,6 +261,17 @@ public sealed class GameSetupTests : IDisposable
         Assert.Equal([Iso], Directory.GetFileSystemEntries(_root));
     }
 
+    [Fact]
+    public void Verify_names_each_step_before_it_starts_so_a_hang_shows_where()
+    {
+        var steps = new List<string>();
+
+        Setup().Verify(Iso, steps.Add);
+
+        Assert.Equal(["Opening the disc image", "Reading the disc's file list", "Hashing default.xex", "The disc is the supported one"],
+            steps.Select(step => step.Split(':')[0]));
+    }
+
     private IReadOnlyList<string> PartialFiles()
     {
         var partial = GameSetup.PartialDirectory(GameData);

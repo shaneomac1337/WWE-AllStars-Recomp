@@ -37,8 +37,8 @@ and refuses anything else.
 | Not supported | Ranked Match and leaderboards; the in-game store (add DLC from the launcher) |
 
 The game runs at its original 60 frames per second, on the Steam Deck too. Anything not
-listed above may still crash; an [issue](../../issues/new/choose) with the session log
-attached helps fix it.
+listed above may still crash; an [issue](../../issues/new/choose) with the
+[crash report](#crash-reports) or session log attached helps fix it.
 
 <table>
   <tr>
@@ -185,6 +185,29 @@ inside (a whole USB `Content` folder works) or a zip, 7z or rar.
 
 **Updating:** your saves are in `userdata`. Copy that folder into the new version's folder.
 
+### Starting without the launcher
+
+After the first setup, the game starts on its own: run `game\wweallstars.exe` from your
+folder, from a desktop shortcut to it, or add it to Steam (Game Mode on a Steam Deck). It
+finds the game files the launcher set up and uses the settings you chose in the launcher,
+and its session logs go to the same `logs` folder. Before setup it only tells you to run
+the launcher once. The launcher is still where you change settings, add DLC and repair an
+install.
+
+### Crash reports
+
+When the game crashes, or the GPU stops working, the game saves a crash report: one zip
+named `crash-<date and time>.zip` in the `logs` folder. A message tells you, and **Yes**
+opens the folder with the zip selected. If you played from the launcher, its message after
+the game ends has an **OPEN CRASH REPORT** button, and the next time it starts it shows the
+reports you haven't opened yet. The launcher makes one for its own crashes too.
+
+The zip holds the session log, your settings file, a small dump of the program's
+threads and a note with the version, renderer, GPU and driver. It has no game
+data and is small enough to attach on GitHub. Nothing is uploaded: attach it to a
+[bug report](../../issues/new/choose) yourself. The log can contain folder paths that show
+your Windows user name; check it before posting. The launcher keeps the last 10 reports.
+
 ### If something is off
 
 | What you see | What to do |
@@ -192,8 +215,11 @@ inside (a whole USB `Content` folder works) or a zip, 7z or rar.
 | Motion isn't quite even | Turn on variable refresh (FreeSync or G-Sync) if your display has it, or use a refresh rate that is a multiple of 60 (60, 120, 240 Hz). On a 144 or 165 Hz display without variable refresh, frames alternate between 2 and 3 refreshes |
 | Slow on a weak GPU | Pick the Low preset under GRAPHICS. Supersampling is the costly setting |
 | The game started on Emulated | The launcher says why; Prepare shaders fixes the usual cause |
+| The launcher says the GPU stopped working on Native | Your GPU or driver failed under the Native renderer. Choose **SWITCH TO EMULATED** to play on the Emulated renderer, and update your graphics driver. Please attach the [crash report](#crash-reports) to a bug report too |
+| The launcher freezes, for example when you pick a file | Start it with `WWEAllStarsLauncher.exe --reduce-effects`, or turn on Settings > LAUNCHER > Reduce effects; it turns off the window's see-through backdrop and animations. Each step is written to `logs\launcher.log`; attach it to a bug report |
 | Setup starts again after moving the folder | Releases up to 1.0.0 remember the game files by their full path. Delete `userdata\launcher-state.json` and the launcher finds the `gamedata` folder beside it again. Later releases handle a moved folder on their own |
-| A crash or wrong graphics | Choose Open logs in the launcher, zip the session folder it opens and attach it to a [bug report](../../issues/new/choose). A log can contain folder paths that show your Windows user name; check it before posting |
+| A crash | Attach the [crash report](#crash-reports) zip to a [bug report](../../issues/new/choose) |
+| Wrong graphics, or a crash without a report | Choose Open logs in the launcher, zip the session folder it opens and attach it to a [bug report](../../issues/new/choose). A log can contain folder paths that show your Windows user name; check it before posting |
 
 ## FAQ
 

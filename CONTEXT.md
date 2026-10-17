@@ -34,6 +34,16 @@ _Avoid_: dropped draw, missing draw
 A session that was asked to run on Native runs on Emulated instead, because Native could not start or its shader pack is missing, damaged, of another format version or stale. The log names the reason. A renderer fallback fails a scene.
 _Avoid_: emulation fallback, safe mode
 
+**GPU failure**:
+Native was running and the GPU or driver stopped working under it. The game ends the session with the reason logged and does not try to recover; the launcher offers Emulated for the next start. It is neither a renderer fallback (the session did not go on to run on Emulated) nor a crash (the game ended it on purpose).
+_Avoid_: device lost (one cause, not the term), GPU crash, renderer crash
+
+### Support
+
+**Crash report**:
+One file the player attaches to a bug report, made on their PC after the game crashes, the game ends a session with a GPU failure, or the launcher crashes. It holds what the developer needs to find the cause (logs, settings, the machine's GPU and driver, and a dump of the crashed process). It never leaves the PC on its own: the player hands it over.
+_Avoid_: crash dump (that's one part of it), telemetry, error report
+
 **Shader pack**:
 The game's shaders converted for Native on the player's machine, in one file in the cache folder that the game loads at startup. It records the XenosRecomp patch it was converted with; a pack from another patch is stale.
 _Avoid_: shader cache (the SDK's own), shader library (when meaning the file)

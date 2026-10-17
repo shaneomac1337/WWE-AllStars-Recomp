@@ -6,6 +6,7 @@
 
 #include <rex/rex_app.h>
 #include <rex/system.h>
+#include <rex/system/host_gpu_loss.h>
 #include <rex/cvar.h>
 #include <rex/filesystem.h>
 #include <rex/input/input_system.h>
@@ -16,6 +17,7 @@
 #include <rex/ui/presenter.h>
 #include <rex/ui/window.h>
 
+#include "crash_report.h"
 #include "d3d_census.h"
 #include "frame_capture.h"
 #include "frame_clock.h"
@@ -24,6 +26,8 @@
 #include "native/native_renderer.h"
 #include "resolve_watch.h"
 #include "script_input.h"
+#include "settings/config_file.h"
+#include "settings/exit_row.h"
 #include "settings/gpu_list.h"
 #include "settings/schema.h"
 #include "settings/settings_page.h"
@@ -42,6 +46,7 @@ class WweAllStarsApp : public rex::ReXApp {
 
   static std::unique_ptr<rex::ui::WindowedApp> Create(
       rex::ui::WindowedAppContext& ctx) {
+    wwe::crash::Install();
     // The launcher's headless export, before any window or the runtime.
     wwe::settings::PrintSchemaAndExitIfAsked();
     wwe::settings::PrintGpusAndExitIfAsked();
@@ -98,6 +103,7 @@ class WweAllStarsApp : public rex::ReXApp {
     }
     config_path_ = paths.config_path;
     user_data_folder_ = paths.user_data_root;
+    wwe::crash::SetSettingsFile(wwe::settings::SettingsPath(user_data_folder_));
   }
 
   void OnConfigureFonts(ImFontAtlas* atlas) override { wwe::settings::AddFonts(atlas); }
@@ -141,6 +147,17 @@ class WweAllStarsApp : public rex::ReXApp {
       rex::perf::SetCsvLogPath(path);
     }
     wwe::settings::LogGpu(runtime());
+    {
+      const auto [gpu, driver] = wwe::settings::RuntimeGpuAndDriver(runtime());
+      wwe::crash::SetGpu(gpu, driver);
+      wwe::crash::SetGuestMemory(runtime()->memory()->virtual_membase(),
+                                 runtime()->memory()->physical_membase());
+      if (auto* game_window = window()) {
+        wwe::crash::SetWindow(game_window->GetNativeWindowHandle());
+      }
+      // A device loss the SDK sees is a GPU failure under Native.
+      rex::system::host_gpu_loss::SetHandler(&wwe::native::OnHostGpuLoss);
+    }
     wwe::settings::ApplySuggestedPresetOnFirstStart(wwe::settings::RuntimeSuggestedPreset(runtime()));
     wwe::frame_clock::Configure();
     wwe::game_tick::Configure(runtime());
@@ -175,6 +192,14 @@ class WweAllStarsApp : public rex::ReXApp {
                              {wwe::settings::RuntimeGpuNames(runtime()),
                               runtime()->game_data_root(),
                               wwe::settings::RuntimeSuggestedPreset(runtime())});
+    // EXIT TO DESKTOP in the main menu: the same close as the window's button.
+    wwe::settings::SetExitToDesktop([this] {
+      app_context().CallInUIThread([this] {
+        if (auto* game_window = window()) {
+          wwe::startup::RequestWindowClose(game_window->GetNativeWindowHandle());
+        }
+      });
+    });
   }
 
   // Closing the window hard-exits the process without OnShutdown, so the

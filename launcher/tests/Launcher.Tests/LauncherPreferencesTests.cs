@@ -57,4 +57,25 @@ public sealed class LauncherPreferencesTests : IDisposable
         Assert.False(LauncherPreferences.Load(Layout).CheckForUpdates);
         Assert.Equal([FilePath], Directory.GetFiles(Path.GetDirectoryName(FilePath)!));
     }
+
+    [Fact]
+    public void Effects_are_full_until_the_player_reduces_them()
+    {
+        Assert.False(LauncherPreferences.Load(Layout).ReduceEffects);
+    }
+
+    [Fact]
+    public void Reducing_effects_is_remembered_and_leaves_the_update_check_alone()
+    {
+        LauncherPreferences.Load(Layout).With(checkForUpdates: false).Save(Layout);
+
+        LauncherPreferences.Load(Layout).With(reduceEffects: true).Save(Layout);
+
+        var reopened = LauncherPreferences.Load(Layout);
+        Assert.True(reopened.ReduceEffects);
+        Assert.False(reopened.CheckForUpdates);
+
+        reopened.With(checkForUpdates: true).Save(Layout);
+        Assert.True(LauncherPreferences.Load(Layout).ReduceEffects);
+    }
 }

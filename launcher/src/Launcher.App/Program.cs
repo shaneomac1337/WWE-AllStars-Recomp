@@ -34,6 +34,9 @@ internal static class Program
             }
         }
         App.Options = options;
+        App.Log = LauncherLog.Start(options.Layout, () => DateTimeOffset.Now);
+        App.Log.Write($"Launcher started: {Environment.OSVersion}, arguments: {string.Join(' ', args)}");
+        LauncherCrashHandler.Install();
         return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
     }
 

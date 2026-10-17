@@ -152,6 +152,16 @@ void HideWindow(void* native_window) {
 #endif
 }
 
+void RequestWindowClose(void* native_window) {
+#if defined(_WIN32)
+  if (native_window) {
+    ::PostMessageW(static_cast<HWND>(native_window), WM_CLOSE, 0, 0);
+  }
+#else
+  (void)native_window;
+#endif
+}
+
 std::filesystem::path TitleIconPath(const std::filesystem::path& exe_folder) {
   return exe_folder.parent_path() / "userdata" / "icon.ico";
 }

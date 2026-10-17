@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "settings/headless.h"
@@ -66,6 +67,10 @@ void PrintGpusAndExitIfAsked();
 // The names of the GPUs the running game's Vulkan instance reports, in
 // vulkan_device order; empty without one.
 std::vector<std::string> RuntimeGpuNames(rex::Runtime* runtime);
+
+// The name and driver version (hex, as Vulkan reports it) of the GPU the game
+// runs on, for the crash report; empty without one.
+std::pair<std::string, std::string> RuntimeGpuAndDriver(rex::Runtime* runtime);
 
 // Logs the GPU the game runs on, with its vulkan_device index and suggested preset.
 void LogGpu(rex::Runtime* runtime);

@@ -69,6 +69,30 @@ public sealed class CommandLineTests : IDisposable
         Assert.Equal(Path.Combine(other, "logs"), options.Layout.LogsDirectory);
     }
 
+    [Fact]
+    public void Reduce_effects_opens_the_window_with_its_effects_off()
+    {
+        Assert.False(LauncherOptions.Parse([], _root).ReduceEffects);
+
+        var options = LauncherOptions.Parse(["--reduce-effects"], _root);
+
+        Assert.True(options.ReduceEffects);
+        Assert.False(options.Headless);
+    }
+
+    [Theory]
+    [InlineData("--debug-crash", LauncherDebugCrash.UiThread)]
+    [InlineData("--debug-crash-task", LauncherDebugCrash.BackgroundTask)]
+    public void A_debug_switch_makes_the_window_launcher_throw(string option, LauncherDebugCrash crash)
+    {
+        Assert.Equal(LauncherDebugCrash.None, LauncherOptions.Parse([], _root).DebugCrash);
+
+        var options = LauncherOptions.Parse([option], _root);
+
+        Assert.Equal(crash, options.DebugCrash);
+        Assert.False(options.Headless);
+    }
+
     [Theory]
     [InlineData("--frobnicate")]
     [InlineData("--game-data")]

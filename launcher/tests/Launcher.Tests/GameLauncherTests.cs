@@ -125,6 +125,18 @@ public sealed class GameLauncherTests : IDisposable
                      "Open logs to see what happened.", report.Message);
     }
 
+    [Theory]
+    [InlineData(0xE0575701u, "it gave up after an internal error (abort)")]
+    [InlineData(0xE0575702u, "it called a C++ function that no longer exists")]
+    [InlineData(0xE0575703u, "it passed a bad value to the C runtime")]
+    public async Task The_exits_the_game_raises_for_abort_and_CRT_errors_are_named(uint code, string words)
+    {
+        var report = await RunAndExit(unchecked((int)code));
+
+        Assert.Equal(GameExitKind.Crashed, report.Kind);
+        Assert.Equal($"The game crashed: {words} (0x{code:X8}). Open logs to see what happened.", report.Message);
+    }
+
     [Fact]
     public async Task An_unknown_crash_code_is_shown_in_hex()
     {
@@ -195,6 +207,60 @@ public sealed class GameLauncherTests : IDisposable
         Assert.False(report.OfferEmulated);
     }
 
+    // The GPU failure line from a game run with --wwe_native_debug_fail_submit (src/native/gpu_failure.h).
+    private const string GpuFailureLine =
+        "[2026-10-16 23:30:21.459] [error] [core] [t25260] native renderer: gpu failure VK_ERROR_DEVICE_LOST " +
+        "(vkQueueSubmit); ending the session. Switch the renderer to Emulated in the launcher if this repeats.";
+
+    [Fact]
+    public async Task The_GPU_failure_exit_code_alone_reports_a_GPU_failure_with_an_offer_of_Emulated()
+    {
+        var report = await RunAndExit(GameExitReport.GpuFailureExitCode);
+
+        Assert.Equal(GameExitKind.GpuFailure, report.Kind);
+        Assert.True(report.OfferEmulated);
+        Assert.False(report.OfferShaderRebuild);
+        Assert.Equal("The GPU stopped working while the game ran on Native, so the game ended the session. " +
+                     "Switch the renderer to Emulated to play.", report.Message);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(unchecked((int)0xC0000005))]
+    public async Task A_GPU_failure_line_reports_a_GPU_failure_when_the_exit_code_is_lost(int exitCode)
+    {
+        var report = await RunAndExit(exitCode, "i> 00001234 loading", GpuFailureLine);
+
+        Assert.Equal(GameExitKind.GpuFailure, report.Kind);
+        Assert.True(report.OfferEmulated);
+        Assert.False(report.OfferShaderRebuild);
+    }
+
+    [Fact]
+    public async Task A_GPU_failure_after_a_shader_pack_fallback_line_is_reported_as_the_GPU_failure()
+    {
+        var report = await RunAndExit(GameExitReport.GpuFailureExitCode,
+            "!> 00001234 native renderer: renderer fallback stale_shader_pack (old); running on Emulated. " +
+            "Rebuild the shader pack with the launcher or pwsh scripts/convert-shaders.ps1.",
+            GpuFailureLine);
+
+        Assert.Equal(GameExitKind.GpuFailure, report.Kind);
+        Assert.True(report.OfferEmulated);
+        Assert.False(report.OfferShaderRebuild);
+    }
+
+    [Fact]
+    public async Task A_GPU_failure_line_and_a_renderer_fallback_line_without_the_exit_code_give_the_GPU_failure()
+    {
+        var report = await RunAndExit(0,
+            "!> 00001234 native renderer: could not create Vulkan resources; running on Emulated",
+            GpuFailureLine);
+
+        Assert.Equal(GameExitKind.GpuFailure, report.Kind);
+        Assert.False(report.OfferShaderRebuild);
+    }
+
     [Fact]
     public async Task A_session_without_a_log_still_reports_its_exit()
     {
@@ -258,5 +324,46 @@ public sealed class GameLauncherTests : IDisposable
         public Task<int> ExitCode => _exit.Task;
 
         public void Exit(int code) => _exit.SetResult(code);
+    }
+
+    private const string SavedLine =
+        @"[2026-10-16 23:50:20.756] [error] [core] [t16976] crash report: saved C:\wwe\logs\crash-20261016-235020.zip";
+
+    [Fact]
+    public async Task A_GPU_failure_carries_the_path_of_its_crash_report()
+    {
+        var report = await RunAndExit(GameExitReport.GpuFailureExitCode, GpuFailureLine, SavedLine);
+
+        Assert.Equal(GameExitKind.GpuFailure, report.Kind);
+        Assert.True(report.OfferEmulated);
+        Assert.Contains("Open crash report", report.Message);
+        Assert.Equal(@"C:\wwe\logs\crash-20261016-235020.zip", report.CrashReportPath);
+    }
+
+    [Fact]
+    public async Task A_crash_carries_the_path_of_its_crash_report()
+    {
+        var report = await RunAndExit(unchecked((int)0xC0000005), "i> 00001234 loading", SavedLine);
+
+        Assert.Equal(GameExitKind.Crashed, report.Kind);
+        Assert.Contains("Open crash report", report.Message);
+        Assert.Equal(@"C:\wwe\logs\crash-20261016-235020.zip", report.CrashReportPath);
+    }
+
+    [Fact]
+    public async Task An_exit_without_a_saved_line_has_no_crash_report()
+    {
+        var report = await RunAndExit(unchecked((int)0xC0000005), "i> 00001234 loading");
+
+        Assert.Null(report.CrashReportPath);
+    }
+
+    [Fact]
+    public async Task A_closed_game_never_carries_a_crash_report()
+    {
+        var report = await RunAndExit(0, SavedLine);
+
+        Assert.Equal(GameExitKind.Closed, report.Kind);
+        Assert.Null(report.CrashReportPath);
     }
 }

@@ -23,6 +23,11 @@ void Configure(rex::Runtime* runtime);
 
 bool IsEnabled();
 
+// The SDK lost the device (presenter or GPU plugin, any thread): under Native,
+// ends the session as a GPU failure (ADR-0025) and never returns; otherwise
+// returns and the SDK ends the game as before.
+void OnHostGpuLoss();
+
 // --wwe_prepare_pipelines: the launcher's headless setup step.
 bool PrepareRequested();
 
