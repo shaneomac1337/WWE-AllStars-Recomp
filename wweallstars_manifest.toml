@@ -442,6 +442,61 @@ name = "WweOnlineTrace_829E1020"
 registers = ["r3", "r4", "r5", "r6", "r12"]
 after_instruction = true
 
+# Online stats line (.scratch/online-latency/, ticket 01; docs/research/online-latency.md
+# §2.2). The SyncSim step 0x82A61D80 loops from 0x82A62140: lwz r31,84(r22) loads the
+# sim at 0x82A6219C, then bl 0x830D9F00 at 0x82A621B4 (the update, r3 = sim, r4 = the
+# Quazal clock from 0x83074B78, r5 = 1) returns its code in r3. 0x82A621B8 cmplwi
+# r3,6 / mtctr r3 dispatch: 0 -> 0x82A622C8 (stepped), 1 -> 0x82A621E4 (appSleep(0),
+# b 0x82A62140), 2 -> 0x82A621F0 (stall table, b 0x82A62140 at 0x82A622C4). r31 is
+# non-volatile, so it still holds the sim after the call; the hook reads the sim's
+# StepFrequency (+0x98) and latency (+0xB0), the two words 0x830D7880 divides for the
+# lead. After the call, before the cmplwi: src/online/syncsim_stats_hook.cpp. Log-only: it
+# returns at once unless --wwe_net_trace. (The Transport Thread wake of ticket 04 lives in
+# src/online/net_wake_hooks.cpp, after the input queue 0x830DBEC0 and resend 0x830DC0E8.)
+[[entrypoint.midasm_hook]]
+address = 0x82A621B4
+name = "WweSyncSimStats"
+registers = ["r3", "r31"]
+after_instruction = true
+
+# Online step rate 30 Hz (.scratch/online-latency/, ticket 03; docs/research/online-latency.md
+# §2.3). SyncSim's adaptive rate 0x830D8FA0 (r31 = sim; skipped unless lbz +0xA9E):
+# 0x830D8FF0 lwz r10,164(r31) (whole ms since the last step); 0 -> lwz r10,160(r31)
+# (cap), b 0x830D9020; else 0x830D9004-0x830D901C li r9,1000 / divw r10,r9,r10 /
+# cmplw r10,cap / blt 0x830D9020 / mr r10,r11: r10 = min(cap, 1000/elapsed),
+# truncated, so 34 ms samples 29. 0x830D9020-0x830D906C smooth it: lfs f0,192(r31)
+# (weight 0.1, 0x82062764) / lfs f13,196(r31) / fadds (weight sum) / fdivs while the
+# sum < 1.0 (0x82001CC8) / fcfid of r10 / fmadds into stfs f6,0(r11), r11 = r31+188
+# (the mean). 0x830D9070 fctidz f4,f6 / lwz r30,124(r1) truncates the mean, and
+# 0x830D9084 mr r4,r30 / bl 0x830D8F30 publishes it (sth r4 = local StepFrequency).
+# After a single stall the float mean of 30s recovers only to 29.999985, so even a
+# fixed sample would stay published as 29.
+# WweStepRateSample: before 0x830D9020 (join of 0x830D9000 b, 0x830D9018 blt and
+# the 0x830D901C fall-through), r10 = step_rate.h SampleRate (elapsed - 1, the
+# whole-ms quantisation: 33/34 ms -> 30, 66/67 ms with cap 15 -> 15). Ticket 06, the
+# start-up ramp (20 -> 30 after the bell): constructor 0x830D8A18 stores 0.0
+# (0x82000E90) at +0xBC (mean) and +0xC4 (weight sum); below sum 1.0 the weight is
+# 0.1/sum (0x830D9038 fcmpu / 0x830D9040 fdivs). The sim start 0x830D9528-0x830D95C4
+# adds +0x98 (30) as sample 1. sim+0xA4 is set at 0x830D9F30-0x830D9F64 (lwz
+# r11,164(r31) / bne / bl 0x82420670 = now - last step +0x88 / stw r3,164(r31)) on the
+# first update after each calculation, so step 3 measures the match intro (9115 ms in
+# analysis/session-sync-ol06diag-B) and its 0 weighs 1/4; steps 4..30 before the fight
+# come 50 ms apart whatever is published, sample 20 and hold the mean at 20. So the
+# hook samples the cap up to step step_rate.h kStartSteps (sim+0x78: 1 at 0x830D81C4,
+# +1 per step at 0x830DA038-0x830DA044).
+# WweStepRatePublish: before 0x830D9084, r30 = PublishRate (nearest, 1..cap) of the
+# mean the game just stored at +0xBC. r31 is the sim throughout (set at 0x830D8FB8,
+# non-volatile across bl 0x830D8048). src/online/step_rate_hooks.cpp.
+[[entrypoint.midasm_hook]]
+address = 0x830D9020
+name = "WweStepRateSample"
+registers = ["r10", "r31"]
+
+[[entrypoint.midasm_hook]]
+address = 0x830D9084
+name = "WweStepRatePublish"
+registers = ["r30", "r31"]
+
 # 60 fps entrances (.scratch/60fps-entrances/spec.md; docs/research/60fps-entrances.md
 # §1.1). FEngineLoop::Tick 0x82417780 picks its step at 0x824178CC: lis r11,-0x7c8f /
 # lwz r11,-0x6aec(r11) loads the 1/30 flag 0x83709514; beq 0x82417910 takes the 1/60

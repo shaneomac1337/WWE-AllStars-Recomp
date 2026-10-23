@@ -50,15 +50,19 @@ public static class ModOnlineRule
     /// <summary>
     /// A mod's kind: cosmetic only when its manifest says so and it touches nothing on the
     /// gameplay list (a <c>config/</c> edit, a <c>content/</c> part or a gameplay-list package). The reason is set when
-    /// a mod declared cosmetic is forced to gameplay.
+    /// a mod declared cosmetic is forced to gameplay. <paramref name="dlcPackages"/> are the packages
+    /// an installed official pack also ships: they go into the combined content, which is offline only.
     /// </summary>
     internal static (ModKind Kind, string? ForcedReason) Classify(
-        ModManifest? manifest, IReadOnlyList<ModPackage> packages, bool editsConfig, bool addsContent = false)
+        ModManifest? manifest, IReadOnlyList<ModPackage> packages, bool editsConfig, bool addsContent = false,
+        IReadOnlyList<ModPackage>? dlcPackages = null)
     {
         if (manifest?.Kind != ModKind.Cosmetic) return (ModKind.Gameplay, null);
         var touches = new List<string>();
         if (editsConfig) touches.Add("it changes config");
         if (addsContent) touches.Add("it adds content (new wrestlers), which is offline only");
+        if (dlcPackages is { Count: > 0 })
+            touches.Add($"it replaces {string.Join(", ", dlcPackages.Select(package => package.Name))}, which an installed DLC pack ships; that loads offline only");
         var gameplay = packages.Select(package => package.Name).Where(IsGameplayPackage).ToList();
         if (gameplay.Count > 0)
             touches.Add($"it replaces {string.Join(", ", gameplay)}, " +

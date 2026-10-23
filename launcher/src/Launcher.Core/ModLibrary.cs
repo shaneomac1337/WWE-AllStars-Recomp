@@ -51,6 +51,19 @@ public sealed record ModInfo(
     /// <summary>A mod with a <c>content/</c> part: it adds content (new wrestlers), offline only.</summary>
     public bool IsContentMod => Content.Count > 0;
 
+    /// <summary>
+    /// The mod's packages an installed official pack also ships. The game finds a DLC package
+    /// before the update folder's, so Play builds these into the combined content instead
+    /// (DLC mods research §3), and the mod is offline only, as a content mod is.
+    /// </summary>
+    public IReadOnlyList<ModPackage> DlcPackages { get; init; } = [];
+
+    /// <summary>The mod's packages that go into the update folder: all but <see cref="DlcPackages"/>.</summary>
+    public IEnumerable<ModPackage> OverlayPackages => Packages.Except(DlcPackages);
+
+    /// <summary>A content mod, or a mod with <see cref="DlcPackages"/>: Play builds the combined content for it.</summary>
+    public bool UsesCombinedContent => IsContentMod || DlcPackages.Count > 0;
+
     /// <summary>Cosmetic or gameplay, after the gameplay list (<see cref="ModOnlineRule"/>).</summary>
     public ModKind Kind { get; init; } = ModKind.Gameplay;
 
@@ -96,7 +109,7 @@ public sealed partial class ModLibrary(PortableLayout layout, KnownGameFiles kno
             var entries = Sync();
             var index = entries.FindIndex(entry => string.Equals(entry.Id, id, StringComparison.OrdinalIgnoreCase));
             if (index < 0) throw new LauncherException($"There is no mod named {id} in {layout.ModsDirectory}.");
-            var mod = Read(entries[index]);
+            var mod = Read(entries[index], PackPackageNames());
             if (enabled && mod.Problems.Count > 0)
                 throw new LauncherException($"{mod.Id} can't be turned on: {mod.Problems[0]}");
             entries[index] = entries[index] with { Enabled = enabled, IsNew = false };
@@ -124,27 +137,32 @@ public sealed partial class ModLibrary(PortableLayout layout, KnownGameFiles kno
     private List<ModInfo> Scan()
     {
         var entries = Sync();
-        return [.. entries.Select(Read)];
+        var packPackages = PackPackageNames();
+        return [.. entries.Select(entry => Read(entry, packPackages))];
     }
 
-    private ModInfo Read(LoadOrderEntry entry)
+    /// <param name="packPackages">The packages the installed official packs ship (<see cref="PackPackageNames"/>).</param>
+    private ModInfo Read(LoadOrderEntry entry, HashSet<string> packPackages)
     {
         var folder = Path.Combine(layout.ModsDirectory, entry.Id);
         var problems = new List<string>();
+        var known = _known.WithPackages(packPackages);
         var manifest = ModManifestReader.Read(Path.Combine(folder, ManifestFileName), problems);
-        var packages = ReadPackages(Path.Combine(folder, PackagesFolderName), problems);
+        var packages = ReadPackages(Path.Combine(folder, PackagesFolderName), known, problems);
         var config = ReadConfig(Path.Combine(folder, ConfigFolderName), problems);
         var contentFolder = Path.Combine(folder, ContentFolderName);
-        var content = ReadContent(contentFolder, _known, problems);
+        var content = ReadContent(contentFolder, known, problems);
         CheckCodeNames(content, problems);
         var addsContent = Directory.Exists(contentFolder) && Directory.EnumerateFiles(contentFolder, "*", SearchOption.AllDirectories).Any();
-        var (kind, forcedReason) = ModOnlineRule.Classify(manifest, packages, EditsConfig(folder), addsContent);
+        var dlcPackages = packages.Where(package => packPackages.Contains(package.Name)).ToList();
+        var (kind, forcedReason) = ModOnlineRule.Classify(manifest, packages, EditsConfig(folder), addsContent, dlcPackages);
         return new ModInfo(entry.Id, folder, manifest, entry.Enabled && problems.Count == 0, entry.IsNew, problems, packages)
         {
             Kind = kind,
             ForcedGameplayReason = forcedReason,
             Config = config,
             Content = content,
+            DlcPackages = dlcPackages,
         };
     }
 
@@ -159,9 +177,9 @@ public sealed partial class ModLibrary(PortableLayout layout, KnownGameFiles kno
 
     /// <summary>
     /// The mod's <c>packages/</c>: flat <c>.xxx</c> files with safe names, each a package (the
-    /// tag in either byte order) replacing one the disc or TU2 has.
+    /// tag in either byte order) replacing one the disc, TU2 or an installed official pack has.
     /// </summary>
-    private List<ModPackage> ReadPackages(string folder, List<string> problems)
+    private static List<ModPackage> ReadPackages(string folder, KnownGameFiles known, List<string> problems)
     {
         var packages = new List<ModPackage>();
         if (!Directory.Exists(folder)) return packages;
@@ -181,7 +199,7 @@ public sealed partial class ModLibrary(PortableLayout layout, KnownGameFiles kno
                 problems.Add($"{shown} has a file name the game can't use.");
                 continue;
             }
-            if (!_known.IsPackage(name))
+            if (!known.IsPackage(name))
             {
                 problems.Add($"{shown} replaces no package the game has; a mod can only replace packages.");
                 continue;
@@ -194,7 +212,7 @@ public sealed partial class ModLibrary(PortableLayout layout, KnownGameFiles kno
                 using var stream = File.OpenRead(path);
                 size = stream.Length;
                 uncompressed = Ue3Package.TocUncompressedSize(stream);
-                renamed = PackageOrigin.Check(stream, name, _known.IsPackage);
+                renamed = PackageOrigin.Check(stream, name, known.IsPackage);
             }
             catch (InvalidDataException)
             {
@@ -377,6 +395,13 @@ public sealed class KnownGameFiles(IEnumerable<string> packageNames, IEnumerable
             .Select(path => path[(path.LastIndexOf('/') + 1)..]), configFiles, LanguagesOf(update));
 
     public bool IsPackage(string shortName) => _packages.Contains(shortName);
+
+    /// <summary>
+    /// These files with <paramref name="packageNames"/> known as packages too: the installed
+    /// official packs' packages, which a mod may replace, DLC-only ones included (DLC mods research §5).
+    /// </summary>
+    public KnownGameFiles WithPackages(IEnumerable<string> packageNames) =>
+        new(_packages.Concat(packageNames), _configFiles.Values, _languages);
 
     /// <summary>Where an inner ini of this file name goes in a mod's <c>config/</c>, or null when TU2 has none.</summary>
     public string? ConfigPathOf(string fileName) => _configFiles.GetValueOrDefault(fileName);

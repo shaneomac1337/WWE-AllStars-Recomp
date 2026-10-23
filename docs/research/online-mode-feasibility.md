@@ -4,7 +4,8 @@ Date 2026-10-05. Research only: no code, manifest or build changed. The online
 spike the same day (`.scratch/online-spike/`, branch `online-spike`) tested it on
 the running game: §6 has its results, and they close the open questions below.
 Addresses are base XEX v5 in `analysis/xex/default.pe` (file offset = address −
-0x82000000). Disassembly is from `python scripts/disasm.py`. Call and string
+0x82000000), except §1.5, which gives TU2 addresses (ADR-0022, online-latency
+ticket 01). Disassembly is from `python scripts/disasm.py`. Call and string
 cross-references come from a throwaway `lis`/`addi` and `bl` scanner over
 `.text`, so a function reached only through a vtable shows no caller. ReXGlue
 paths are relative to `.tools/rexglue-source` (`f5337cdc` plus `patches/`).
@@ -181,7 +182,7 @@ UTF-16 strings in `.rdata`:
 
 ### 1.5 The game's own Net-Z data model [V]
 
-DDL class and field names in `.data` at `0x83541600`–`0x83546000`, namespace
+DDL class and field names in `.data` at `0x83541610`–`0x83546010`, namespace
 `GameWrestlingXBox360`:
 
 | DDL object | Fields / methods | Meaning [I] |
@@ -195,25 +196,25 @@ DDL class and field names in `.data` at `0x83541600`–`0x83546000`, namespace
 SyncSim library strings: `SyncSimAttributes`, `SimStation`, `SessionClock`,
 `SyncSimReplayLog`, `SimulationChecksum`, `StationChecksum`,
 `UserChecksum0`–`UserChecksum4`, `m_uiInputLatency`/`m_uiOutputLatency`
-(`0x822FB99D`–`0x82304B65`, `0x835C5779`–`0x835C5BAE`).
+(`0x822FC88C`–`0x82305970`, `0x835C5789`–`0x835C5BBE`).
 
-- `0x82A5F000` brings up SyncSim. It is gated on the global `0x8374053C`,
-  needs a player count `[0x83740544]` in 1..4, and calls `0x830D5B40` with a
-  20000 (`0x4E20`) argument at `0x82A5F1A0`. Its callers are `0x82BB86E8` and
-  `0x82BBE4F8`.
+- `0x82A617D8` brings up SyncSim. It is gated on the global `0x8374058C`,
+  needs a player count `[0x83740594]` in 1..4, and calls `0x830D9C00` with a
+  20000 (`0x4E20`) argument at `0x82A619CC`. Its callers are `0x82BBBAE0` and
+  `0x82BC1928`.
 - **Built-in determinism tooling.** The command-line switches `NETZRECORD` and
-  `NETZPLAYBACK` (UTF-16 at `0x82001BA5`/`0x82001BBD`) are parsed at
-  `0x824146C8`–`0x824146FC` into `0x8374052C`/`0x83740530`. `0x82A5F000` uses
-  them to pick `0x82A5EC48` (record) or `0x82A5EE60` (playback) of a SyncSim
-  replay log. A separate `RECORDINPUT` switch exists at `0x82418A20`.
+  `NETZPLAYBACK` (UTF-16 at `0x82001B34`/`0x82001B4C`) are parsed at
+  `0x82414578`–`0x824145AC` into `0x8374057C`/`0x83740580`. `0x82A617D8` uses
+  them to pick `0x82A61420` (record) or `0x82A61638` (playback) of a SyncSim
+  replay log. A separate `RECORDINPUT` switch exists at `0x82418910`.
 
-Net-Z's socket factory at `0x830B7898` selects one of three cases:
+Net-Z's socket factory at `0x830C2420` selects one of three cases:
 `(SOCK_DGRAM, UDP 17)` for case 0, `(SOCK_STREAM, TCP 6)` for case 1, and
-`(type 1, protocol 0xFE = VDP)` for case 2 (`0x830B78AC`–`0x830B78D0`). The
+`(type 1, protocol 0xFE = VDP)` for case 2 (`0x830C2434`–`0x830C2458`). The
 type-1 pairing in case 2 is odd, since VDP is a datagram protocol. It has not
 been checked further. One more string: "VDP shoud be used for voice
 transmission for TCR compliance / See XBoxNetworking::UseVDP()" at
-`0x8223DFB9`, ref `0x82C12300`.
+`0x8223EEB8`, ref `0x82C15B08`.
 
 ### 1.6 Xbox Live configuration: the embedded xlast [V]
 

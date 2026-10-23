@@ -66,7 +66,12 @@ public sealed partial class ModLibrary
         try
         {
             List<ModInfo> installed;
-            lock (_lock) installed = Scan();
+            HashSet<string> packPackages;
+            lock (_lock)
+            {
+                installed = Scan();
+                packPackages = PackPackageNames();
+            }
             var count = 0;
             foreach (var input in inputs)
             {
@@ -98,7 +103,7 @@ public sealed partial class ModLibrary
                     refusals.Add(new ModRefusal(input, "Not found."));
                     continue;
                 }
-                InspectFolder(input, folder, installed, claimed, mods, wraps, refusals);
+                InspectFolder(input, folder, packPackages, installed, claimed, mods, wraps, refusals);
             }
             return new ModIntake(mods, wraps, refusals, temp);
         }
@@ -109,7 +114,8 @@ public sealed partial class ModLibrary
         }
     }
 
-    private void InspectFolder(string source, string folder, List<ModInfo> installed, HashSet<string> claimed,
+    /// <param name="packPackages">The installed official packs' packages, which a mod or wrap may replace too.</param>
+    private void InspectFolder(string source, string folder, HashSet<string> packPackages, List<ModInfo> installed, HashSet<string> claimed,
         List<ModInstallCandidate> mods, List<ModWrapCandidate> wraps, List<ModRefusal> refusals)
     {
         var modFolders = new List<string>();
@@ -119,18 +125,19 @@ public sealed partial class ModLibrary
 
         if (modFolders.Count == 0)
         {
-            if (ModWrapping.Candidate(source, folder, _known) is { } wrap)
+            var known = _known.WithPackages(packPackages);
+            if (ModWrapping.Candidate(source, folder, known) is { } wrap)
             {
-                if (PackageOrigin.RenamedIn(wrap, _known) is { } renamed) refusals.Add(new ModRefusal(source, renamed));
+                if (PackageOrigin.RenamedIn(wrap, known) is { } renamed) refusals.Add(new ModRefusal(source, renamed));
                 else wraps.Add(wrap);
             }
-            else refusals.Add(new ModRefusal(source, ModWrapping.Refusal(folder, _known)));
+            else refusals.Add(new ModRefusal(source, ModWrapping.Refusal(folder, known)));
             return;
         }
         foreach (var modFolder in modFolders.Order(StringComparer.OrdinalIgnoreCase))
         {
             // A rooted id makes Read look at the folder itself: the same checks a mod in mods/ gets.
-            var found = Read(new LoadOrderEntry(modFolder, Enabled: false, IsNew: false));
+            var found = Read(new LoadOrderEntry(modFolder, Enabled: false, IsNew: false), packPackages);
             var label = found.Manifest is { Name.Length: > 0 } named ? named.Name : Path.GetFileName(modFolder);
             if (found.Problems.Count > 0 || found.Manifest is null)
             {
@@ -231,7 +238,7 @@ public sealed partial class ModLibrary
             {
                 Directory.CreateDirectory(staging);
                 fill(staging);
-                var check = Read(new LoadOrderEntry(staging, Enabled: false, IsNew: false));
+                var check = Read(new LoadOrderEntry(staging, Enabled: false, IsNew: false), PackPackageNames());
                 if (check.Problems.Count > 0)
                     throw new LauncherException($"{name} wasn't installed: {string.Join(" ", check.Problems)}");
                 cancel.ThrowIfCancellationRequested();

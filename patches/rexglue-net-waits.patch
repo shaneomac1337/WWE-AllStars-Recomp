@@ -1,0 +1,537 @@
+diff --git a/include/rex/kernel/xam/net_wake.h b/include/rex/kernel/xam/net_wake.h
+new file mode 100644
+index 0000000..2ba6528
+--- /dev/null
++++ b/include/rex/kernel/xam/net_wake.h
+@@ -0,0 +1,24 @@
++/**
++ * @file        net_wake.h
++ * @brief       Ends a title thread's blocking WSAWaitForMultipleEvents wait early.
++ *
++ * Every blocking wait-any WSAWaitForMultipleEvents (fWaitAll FALSE, timeout not 0) also
++ * waits on one host event, the wake slot, placed after the title's events. Signalling it
++ * ends such a wait, and the title sees WSA_WAIT_TIMEOUT, as if its timeout had run out.
++ *
++ * Net-Z's Transport Thread, this title's only such waiter, sends what the game queued once
++ * per pass, and a pass starts when a receive event fires or the 10 ms wait times out. A
++ * title hook calls this right after it queues something urgent (a SyncSim step's input),
++ * so the pass, and the send, runs now instead of up to 10 ms later.
++ */
++
++#pragma once
++
++namespace rex::kernel::xam {
++
++// Signals the shared wake slot. The slot is one auto-reset event, so a call ends one
++// wait: the current blocking wait-any of whichever title thread is in one, or else the
++// next one to start. Safe from any thread; does nothing before the title's first such wait.
++void EndBlockingEventWait();
++
++}  // namespace rex::kernel::xam
+diff --git a/include/rex/system/arrival_watcher.h b/include/rex/system/arrival_watcher.h
+new file mode 100644
+index 0000000..a6345fd
+--- /dev/null
++++ b/include/rex/system/arrival_watcher.h
+@@ -0,0 +1,211 @@
++/**
++ * @file        arrival_watcher.h
++ * @brief       Reports datagrams landing on host sockets that have pending guest receives.
++ *
++ * A guest overlapped WSARecvFrom that finds nothing stays pending. Real hardware completes
++ * it and sets its OVERLAPPED's event when a datagram arrives, and a title such as Net-Z's
++ * Transport Thread sleeps in WSAWaitForMultipleEvents until then. This watcher gives the
++ * host the same: one thread blocks in select() on the watched sockets and hands each one a
++ * datagram lands on to a callback, which completes the receive. Wake() makes it reread the
++ * watched set (a receive was posted on a socket it is not watching yet).
++ *
++ * In an include list that needs windows.h first, include this after <winsock2.h>.
++ */
++
++#pragma once
++
++#include <rex/platform.h>
++
++#include <algorithm>
++#include <atomic>
++#include <chrono>
++#include <cstdint>
++#include <functional>
++#include <thread>
++#include <utility>
++#include <vector>
++
++#if REX_PLATFORM_WIN32
++#include <winsock2.h>
++#else
++#include <arpa/inet.h>
++#include <fcntl.h>
++#include <netinet/in.h>
++#include <sys/select.h>
++#include <sys/socket.h>
++#include <unistd.h>
++#endif
++
++namespace rex::system::net {
++
++struct ArrivalWatcherOptions {
++  // false: run as if the wake socket could not be opened (tests).
++  bool open_wake_socket = true;
++  // Told once when the watcher runs without its wake socket.
++  std::function<void(const char*)> warn;
++};
++
++// The watched-set snapshot is taken without holding the guest's sockets: one may be
++// closed, and its native handle even reused by a new socket, before select() runs. Both
++// are harmless. A closed handle fails select(), and the next pass rereads the set. A
++// reused one can only report the old guest id, whose receives closesocket has forgotten,
++// so nothing is taken and the next pass rereads the set. Passes that take nothing back
++// off (kBackoffMin..kBackoffMax) so neither case can spin.
++class ArrivalWatcher {
++ public:
++  // A host socket to watch and the id the callback gets for it (the guest socket handle).
++  struct Watch {
++    uint64_t native;
++    uint32_t id;
++  };
++  // Without the wake socket, Wake() can't end a wait, so waits are this short instead.
++  static constexpr std::chrono::milliseconds kNoWakePoll{10};
++  // With it, the timeout only bounds how long a missed Wake() could go unnoticed.
++  static constexpr std::chrono::milliseconds kWakePoll{250};
++  static constexpr std::chrono::milliseconds kBackoffMin{1};
++  static constexpr std::chrono::milliseconds kBackoffMax{10};
++
++  // `watched` lists the sockets to watch; it is asked again before every wait. `arrived`
++  // gets the id of a socket a datagram landed on and returns whether it took one.
++  ArrivalWatcher(std::function<std::vector<Watch>()> watched,
++                 std::function<bool(uint32_t)> arrived, ArrivalWatcherOptions options = {})
++      : watched_(std::move(watched)), arrived_(std::move(arrived)) {
++    if (!options.open_wake_socket || !OpenWake()) {
++      Close(wake_);
++      wake_ = kNone;
++      if (options.warn) {
++        options.warn("arrival watcher: no wake socket; polling every 10 ms");
++      }
++    }
++    thread_ = std::thread([this] { Run(); });
++  }
++
++  ~ArrivalWatcher() {
++    stop_ = true;
++    Wake();
++    thread_.join();
++    Close(wake_);
++  }
++
++  ArrivalWatcher(const ArrivalWatcher&) = delete;
++  ArrivalWatcher& operator=(const ArrivalWatcher&) = delete;
++
++  void Wake() {
++    if (wake_ != kNone) {
++      const char byte = 0;
++      send(wake_, &byte, 1, 0);
++    }
++  }
++
++ private:
++#if REX_PLATFORM_WIN32
++  using Native = SOCKET;
++  static constexpr Native kNone = INVALID_SOCKET;
++  static void Close(Native s) {
++    if (s != kNone) closesocket(s);
++  }
++  // FD_SETSIZE caps how many sockets an fd_set holds.
++  static bool Fits(Native, size_t count) { return count < FD_SETSIZE; }
++#else
++  using Native = int;
++  static constexpr Native kNone = -1;
++  static void Close(Native s) {
++    if (s != kNone) close(s);
++  }
++  // FD_SETSIZE caps the descriptor's value; FD_SET past it writes out of bounds.
++  static bool Fits(Native s, size_t) { return s >= 0 && s < FD_SETSIZE; }
++#endif
++
++  // A UDP socket on loopback, connected to itself: a byte sent to it wakes select().
++  bool OpenWake() {
++    wake_ = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
++    if (wake_ == kNone || !Fits(wake_, 0)) {
++      return false;
++    }
++    sockaddr_in name{};
++    name.sin_family = AF_INET;
++    name.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
++#if REX_PLATFORM_WIN32
++    int len = sizeof(name);
++#else
++    socklen_t len = sizeof(name);
++#endif
++    if (bind(wake_, reinterpret_cast<sockaddr*>(&name), sizeof(name)) != 0 ||
++        getsockname(wake_, reinterpret_cast<sockaddr*>(&name), &len) != 0 ||
++        connect(wake_, reinterpret_cast<sockaddr*>(&name), sizeof(name)) != 0) {
++      return false;
++    }
++#if REX_PLATFORM_WIN32
++    u_long non_blocking = 1;
++    return ioctlsocket(wake_, FIONBIO, &non_blocking) == 0;
++#else
++    const int flags = fcntl(wake_, F_GETFL);
++    return flags >= 0 && fcntl(wake_, F_SETFL, flags | O_NONBLOCK) == 0;
++#endif
++  }
++
++  void DrainWake() {
++    char data[64];
++    while (recv(wake_, data, sizeof(data), 0) > 0) {
++    }
++  }
++
++  void Run() {
++    const auto poll = wake_ != kNone ? kWakePoll : kNoWakePoll;
++    auto backoff = kBackoffMin;
++    while (!stop_) {
++      const auto watched = watched_();
++      fd_set readable;
++      FD_ZERO(&readable);
++      Native highest = 0;
++      size_t count = 0;
++      if (wake_ != kNone) {
++        FD_SET(wake_, &readable);
++        highest = wake_;
++        ++count;
++      }
++      for (const auto& w : watched) {
++        const auto native = static_cast<Native>(w.native);
++        if (!Fits(native, count)) {
++          continue;  // not watched this pass; its receive completes on the guest's poll
++        }
++        FD_SET(native, &readable);
++        highest = native > highest ? native : highest;
++        ++count;
++      }
++      if (count == 0) {
++        // select() with no sockets fails on Windows; wait the poll out instead.
++        std::this_thread::sleep_for(poll);
++        continue;
++      }
++      timeval limit{0, long(std::chrono::microseconds(poll).count())};
++      const int ready = select(int(highest + 1), &readable, nullptr, nullptr, &limit);
++      bool idle = ready < 0;  // a socket closed under us
++      if (ready > 0) {
++        if (wake_ != kNone && FD_ISSET(wake_, &readable)) {
++          DrainWake();
++        }
++        for (const auto& w : watched) {
++          const auto native = static_cast<Native>(w.native);
++          if (Fits(native, 0) && FD_ISSET(native, &readable) && !arrived_(w.id)) {
++            idle = true;  // readable but nothing taken (an error the receive skipped)
++          }
++        }
++      }
++      if (idle) {
++        std::this_thread::sleep_for(backoff);
++        backoff = std::min(backoff * 2, kBackoffMax);
++      } else {
++        backoff = kBackoffMin;
++      }
++    }
++  }
++
++  std::function<std::vector<Watch>()> watched_;
++  std::function<bool(uint32_t)> arrived_;
++  Native wake_ = kNone;
++  std::atomic<bool> stop_{false};
++  std::thread thread_;
++};
++
++}  // namespace rex::system::net
+diff --git a/include/rex/system/overlapped_receive.h b/include/rex/system/overlapped_receive.h
+index e16792a..6c86bca 100644
+--- a/include/rex/system/overlapped_receive.h
++++ b/include/rex/system/overlapped_receive.h
+@@ -11,11 +11,15 @@
+ 
+ #pragma once
+ 
++#include <algorithm>
++#include <atomic>
+ #include <chrono>
+ #include <cstddef>
+ #include <cstdint>
+ #include <mutex>
++#include <optional>
+ #include <unordered_map>
++#include <vector>
+ 
+ namespace rex::system::net {
+ 
+@@ -24,6 +28,46 @@ inline constexpr uint32_t kWsaIoIncomplete = 996;
+ inline constexpr uint32_t kWsaIoPending = 997;
+ inline constexpr uint32_t kWsaEWouldBlock = 10035;
+ 
++// WSAWaitForMultipleEvents return values.
++inline constexpr uint32_t kWsaWaitIoCompletion = 0xC0;
++inline constexpr uint32_t kWsaWaitTimeout = 0x102;
++inline constexpr uint32_t kWsaWaitFailed = 0xFFFFFFFF;
++inline constexpr uint32_t kWsaInfinite = 0xFFFFFFFF;
++
++// The NT wait behind a WSAWaitForMultipleEvents call.
++struct EventWait {
++  uint32_t nt_wait_type;                // KWAIT_TYPE: 0 WaitAll, 1 WaitAny
++  std::optional<int64_t> timeout_ticks;  // 100 ns units, negative = relative; none = infinite
++  // The host may add its wake event after the title's events (a blocking wait for any).
++  bool wakeable;
++};
++
++// fWaitAll FALSE waits for any event. The millisecond timeout becomes a relative NT
++// timeout (a positive one would be read as an absolute time).
++inline EventWait PlanEventWait(uint32_t wait_all, uint32_t timeout_ms) {
++  EventWait wait{wait_all ? 0u : 1u, std::nullopt, !wait_all && timeout_ms != 0};
++  if (timeout_ms != kWsaInfinite) {
++    wait.timeout_ticks = -int64_t(timeout_ms) * 10000;
++  }
++  return wait;
++}
++
++// The NT wait status as WSAWaitForMultipleEvents returns it: the signalled (or abandoned)
++// event's index, WSA_WAIT_IO_COMPLETION, WSA_WAIT_TIMEOUT, or WSA_WAIT_FAILED. With
++// `wake_slot`, index `count` is the host's wake event, which the title sees as a timeout.
++inline uint32_t EventWaitResult(uint32_t nt_status, uint32_t count, bool wake_slot = false) {
++  if (wake_slot && (nt_status == count || nt_status == 0x80 + count)) {
++    return kWsaWaitTimeout;
++  }
++  if (nt_status < count || (nt_status >= 0x80 && nt_status < 0x80 + count)) {
++    return nt_status;
++  }
++  if (nt_status == kWsaWaitIoCompletion || nt_status == kWsaWaitTimeout) {
++    return nt_status;
++  }
++  return kWsaWaitFailed;
++}
++
+ // Pending receives by the guest address of their OVERLAPPED. `Request` holds what a later
+ // attempt needs and a `socket` member (the guest socket handle). A receive attempt is a
+ // callable taking the request and returning the datagram's size, or a negative value when
+@@ -89,6 +133,40 @@ class OverlappedReceives {
+     }
+   }
+ 
++  // A datagram landed on `socket`: tries its pending receives. Each one that completes
++  // leaves the table and goes to `complete(overlapped, bytes)` under the lock, so a guest
++  // poll after this finds it finished. Returns how many completed.
++  template <typename Receive, typename Complete>
++  int Arrived(uint32_t socket, Receive&& receive, Complete&& complete) {
++    std::lock_guard lock(mutex_);
++    int completed = 0;
++    for (auto it = pending_.begin(); it != pending_.end();) {
++      if (it->second.socket == socket) {
++        const int received = receive(it->second);
++        if (received >= 0) {
++          complete(it->first, received);
++          it = pending_.erase(it);
++          ++completed;
++          continue;
++        }
++      }
++      ++it;
++    }
++    return completed;
++  }
++
++  // The guest sockets with a pending receive, ascending.
++  std::vector<uint32_t> Sockets() const {
++    std::lock_guard lock(mutex_);
++    std::vector<uint32_t> sockets;
++    for (const auto& entry : pending_) {
++      sockets.push_back(entry.second.socket);
++    }
++    std::sort(sockets.begin(), sockets.end());
++    sockets.erase(std::unique(sockets.begin(), sockets.end()), sockets.end());
++    return sockets;
++  }
++
+   // closesocket: the socket's pending receives can never complete.
+   void Forget(uint32_t socket) {
+     std::lock_guard lock(mutex_);
+diff --git a/src/kernel/xam/xam_net.cpp b/src/kernel/xam/xam_net.cpp
+index fa9aa8d..41806c1 100644
+--- a/src/kernel/xam/xam_net.cpp
++++ b/src/kernel/xam/xam_net.cpp
+@@ -13,6 +13,7 @@
+ #pragma GCC diagnostic ignored "-Wunused-parameter"
+ 
+ #include <algorithm>
++#include <atomic>
+ #include <chrono>
+ #include <cstring>
+ #include <map>
+@@ -30,6 +31,7 @@
+ #include <rex/kernel/xam/live/upnp.h>
+ #include <rex/kernel/xam/module.h>
+ #include <rex/kernel/xam/net_trace.h>
++#include <rex/kernel/xam/net_wake.h>
+ #include <rex/kernel/xam/private.h>
+ #include <rex/kernel/xboxkrnl/error.h>
+ #include <rex/kernel/xboxkrnl/threading.h>
+@@ -56,6 +58,9 @@
+ #include <sys/socket.h>
+ #endif
+ 
++// After <winsock2.h>, which it uses.
++#include <rex/system/arrival_watcher.h>
++
+ REXCVAR_DEFINE_BOOL(wwe_net_trace, false, "Kernel",
+                     "Log the guest's network, XMsg and session calls (rate-limited)");
+ 
+@@ -398,6 +403,29 @@ void Complete(uint32_t overlapped_ptr, uint32_t bytes) {
+   }
+ }
+ 
++// Completes a pending receive (and sets its event) as soon as its datagram lands, so a
++// guest that sleeps in WSAWaitForMultipleEvents wakes for it. Started with the first
++// pending receive and never stopped: its thread must not be joined at process exit.
++net::ArrivalWatcher& Watcher() {
++  static auto* watcher = new net::ArrivalWatcher(
++      [] {
++        std::vector<net::ArrivalWatcher::Watch> watched;
++        for (uint32_t handle : receives.Sockets()) {
++          if (auto socket = REX_KERNEL_OBJECTS()->LookupObject<XSocket>(handle)) {
++            watched.push_back({socket->native_handle(), handle});
++          }
++        }
++        return watched;
++      },
++      [](uint32_t handle) {
++        return receives.Arrived(handle, TryReceive, [](uint32_t overlapped_ptr, int bytes) {
++                 Complete(overlapped_ptr, uint32_t(bytes));
++               }) > 0;
++      },
++      net::ArrivalWatcherOptions{true, [](const char* message) { REXKRNL_WARN("{}", message); }});
++  return *watcher;
++}
++
+ }  // namespace overlapped
+ 
+ // A receive that finds no datagram stays pending (WSA_IO_PENDING) when it has an
+@@ -412,6 +440,15 @@ u32 NetDll_WSARecvFrom_entry(u32 caller, u32 socket_handle, u32 buffers_ptr, u32
+   using Status = decltype(overlapped::receives)::Status;
+   const overlapped::Receive request{socket_handle, buffers_ptr, buffer_count, from_ptr,
+                                     from_len_ptr};
++  if (overlapped_ptr) {
++    // Pending until a datagram completes it: here, or on the watcher thread as soon as
++    // Start has queued it, so this must come first.
++    auto* overlapped = REX_KERNEL_MEMORY()->TranslateVirtual<XWSAOVERLAPPED*>(overlapped_ptr);
++    overlapped->internal = X_STATUS_PENDING;
++    if (overlapped->event_handle) {
++      xboxkrnl::xeNtClearEvent(overlapped->event_handle);
++    }
++  }
+   const auto outcome = overlapped::receives.Start(overlapped_ptr, request, overlapped::TryReceive);
+   switch (outcome.status) {
+     case Status::kCompleted:
+@@ -426,16 +463,10 @@ u32 NetDll_WSARecvFrom_entry(u32 caller, u32 socket_handle, u32 buffers_ptr, u32
+       }
+       XThread::SetLastError(0);
+       return 0;
+-    case Status::kPending: {
+-      auto* overlapped =
+-          REX_KERNEL_MEMORY()->TranslateVirtual<XWSAOVERLAPPED*>(overlapped_ptr);
+-      overlapped->internal = X_STATUS_PENDING;
+-      if (overlapped->event_handle) {
+-        xboxkrnl::xeNtClearEvent(overlapped->event_handle);
+-      }
++    case Status::kPending:
++      overlapped::Watcher().Wake();
+       XThread::SetLastError(net::kWsaIoPending);
+       return -1;
+-    }
+     default:
+       XThread::SetLastError(net::kWsaEWouldBlock);
+       return -1;
+@@ -520,6 +551,28 @@ u32 NetDll_WSASendTo_entry(u32 caller, u32 socket_handle, ppc_ptr_t<XWSABUF> buf
+   return 0;
+ }
+ 
++// The wake slot (net_wake.h): one event shared by every blocking wait-any of every title
++// thread. Auto-reset, so one wake ends one wait. Made by the first wait that can take it.
++namespace wake {
++std::atomic<XEvent*> event{nullptr};
++
++XEvent* Get() {
++  static XEvent* made = [] {
++    auto* ev = new XEvent(REX_KERNEL_STATE());
++    ev->Initialize(false, false);
++    event.store(ev, std::memory_order_release);
++    return ev;
++  }();
++  return made;
++}
++}  // namespace wake
++
++void EndBlockingEventWait() {
++  if (auto* ev = wake::event.load(std::memory_order_acquire)) {
++    ev->Set(0, false);
++  }
++}
++
+ u32 NetDll_WSAWaitForMultipleEvents_entry(u32 num_events, mapped_u32 events, u32 wait_all,
+                                           u32 timeout, u32 alertable) {
+   if (num_events > 64) {
+@@ -527,20 +580,30 @@ u32 NetDll_WSAWaitForMultipleEvents_entry(u32 num_events, mapped_u32 events, u32
+     return ~0u;
+   }
+ 
+-  uint64_t timeout_wait = (uint64_t)timeout;
++  const auto wait = net::PlanEventWait(wait_all, timeout);
++  uint64_t timeout_ticks = wait.timeout_ticks ? uint64_t(*wait.timeout_ticks) : 0;
++  // The title's events, and after them the host's wake event (EndBlockingEventWait).
++  rex::be<uint32_t> handles[64];
++  for (uint32_t i = 0; i < num_events; ++i) {
++    handles[i] = events[i];
++  }
++  const bool wake_slot = wait.wakeable && num_events < 64;
++  if (wake_slot) {
++    handles[num_events] = wake::Get()->handle();
++  }
+ 
+   X_STATUS result = 0;
+   do {
+-    result = xboxkrnl::xeNtWaitForMultipleObjectsEx(num_events, events, wait_all, 1, alertable,
+-                                                    timeout != -1 ? &timeout_wait : nullptr);
++    result = xboxkrnl::xeNtWaitForMultipleObjectsEx(num_events + (wake_slot ? 1 : 0), handles,
++                                                    wait.nt_wait_type, 1, alertable,
++                                                    wait.timeout_ticks ? &timeout_ticks : nullptr);
+   } while (result == X_STATUS_ALERTED);
+ 
+-  if (XFAILED(result)) {
+-    uint32_t error = xboxkrnl::xeRtlNtStatusToDosError(result);
+-    XThread::SetLastError(error);
+-    return ~0u;
++  const uint32_t returned = net::EventWaitResult(result, num_events, wake_slot);
++  if (returned == net::kWsaWaitFailed) {
++    XThread::SetLastError(xboxkrnl::xeRtlNtStatusToDosError(result));
+   }
+-  return 0;
++  return returned;
+ }
+ 
+ u32 NetDll_WSACreateEvent_entry() {
+@@ -891,6 +954,18 @@ u32 NetDll_socket_entry(u32 caller, u32 af, u32 type, u32 protocol) {
+     return -1;
+   }
+ 
++#if REX_PLATFORM_WIN32
++  if (type == XSocket::X_SOCK_DGRAM) {
++    // A datagram to a closed port must not fail the next receive (WSAECONNRESET), as on
++    // the relay's sockets.
++    constexpr DWORD kSioUdpConnReset = 0x9800000C;
++    BOOL report = FALSE;
++    DWORD returned = 0;
++    WSAIoctl(static_cast<SOCKET>(socket->native_handle()), kSioUdpConnReset, &report,
++             sizeof(report), nullptr, 0, &returned, nullptr, nullptr);
++  }
++#endif
++
+   return socket->handle();
+ }
+ 

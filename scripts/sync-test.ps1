@@ -8,6 +8,7 @@
 #     [-Server https://allstars.komplexaci.cz]   both copies through the VPS (ticket 15)
 #     [-ForceRelay]                               every peer packet through the relay (16)
 #     [-DropDirect]                               direct peer traffic dropped: fallback (17)
+#     [-TickLog]                                  both copies log the engine tick (--wwe_tick_log)
 #   pwsh scripts/sync-test.ps1 -Collect [-Name match1]   after closing both windows
 # Each station writes GAME:\Station<n>.log (the game data folder); -Collect moves them to
 # analysis/sync-test-<Name>/. Close the game with the window's X, not Task Manager.
@@ -25,6 +26,7 @@ param(
     [string]$ServerSsh = $env:ALLSTARS_DEPLOY_TARGET,   # user@host, for the server's logs
     [switch]$ForceRelay,
     [switch]$DropDirect,
+    [switch]$TickLog,
     [switch]$Collect
 )
 $ErrorActionPreference = 'Stop'
@@ -83,7 +85,7 @@ function Get-ServerLogCount([string]$Pattern) {
 
 # The game's default server is the owner's: a local run names the loopback one.
 $record = @("--wwe_online_server=$(if ($Server) { $Server } else { '127.0.0.1' })") + @(if ($ForceRelay) { '--wwe_online_force_relay=true' }) +
-    @(if ($DropDirect) { '--wwe_online_drop_direct=true' }) + @('--wwe_online=true', '--cl=-NETZRECORD', '--allow_game_relative_writes=true', '--wwe_net_trace=true')
+    @(if ($DropDirect) { '--wwe_online_drop_direct=true' }) + @(if ($TickLog) { '--wwe_tick_log=true' }) + @('--wwe_online=true', '--cl=-NETZRECORD', '--allow_game_relative_writes=true', '--wwe_net_trace=true')
 $menu = @('wait 8000', 'press START', 'wait 5000', 'press START', 'wait 5000', 'press A', 'wait 6000', 'press DOWN',
     'wait 1000', 'press A', 'wait 12000', 'press A', 'wait 5000')
 

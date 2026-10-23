@@ -16,7 +16,7 @@ public sealed partial class ModLibrary
     /// </summary>
     private List<ModConflict> ContentConflicts(IEnumerable<ModInfo> mods)
     {
-        var content = mods.Where(mod => mod.IsContentMod).ToList();
+        var content = mods.Where(mod => mod.UsesCombinedContent).ToList();
         if (content.Count == 0) return [];
         var packs = PackFileNames();
         List<string> PacksShipping(string name) => [.. packs.Where(pack => pack.Names.Contains(name)).Select(pack => pack.DisplayName)];
@@ -37,7 +37,8 @@ public sealed partial class ModLibrary
 
         foreach (var name in WholeRosterPackages)
         {
-            var shippers = content.Where(mod => mod.Content.Any(file => IsNamed(file, name))).ToList();
+            var shippers = content.Where(mod => mod.Content.Any(file => IsNamed(file, name))
+                || mod.DlcPackages.Any(package => package.Name.Equals(name, StringComparison.OrdinalIgnoreCase))).ToList();
             if (shippers.Count == 0) continue;
             var packsShipping = PacksShipping(name);
             if (content.Count == 1 && packsShipping.Count == 0) continue;
@@ -50,14 +51,13 @@ public sealed partial class ModLibrary
 
         var byFile = new SortedDictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         foreach (var mod in content)
-            foreach (var file in mod.Content)
+            foreach (var name in mod.DlcPackages.Select(package => package.Name).Concat(mod.Content.Select(file => Path.GetFileName(file.Path))))
             {
-                var name = Path.GetFileName(file.Path);
                 // Merged, not replaced: the roster file by slot, the game ini and fragments by the installer's rules.
-                if (IsNamed(file, RosterFile.FileName) || IsGameIni(name) || IsFragment(name)
+                if (name.Equals(RosterFile.FileName, StringComparison.OrdinalIgnoreCase) || IsGameIni(name) || IsFragment(name)
                     || WholeRosterPackages.Contains(name, StringComparer.OrdinalIgnoreCase)) continue;
                 if (!byFile.TryGetValue(name, out var fileMods)) byFile[name] = fileMods = [];
-                fileMods.Add(mod.Id);
+                if (!fileMods.Contains(mod.Id)) fileMods.Add(mod.Id);
             }
         foreach (var (name, fileMods) in byFile)
         {
@@ -70,6 +70,11 @@ public sealed partial class ModLibrary
 
     private static bool IsNamed(ModContentFile file, string name) =>
         Path.GetFileName(file.Path).Equals(name, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The packages (<c>.xxx</c>) the installed official packs ship, by short name.</summary>
+    private HashSet<string> PackPackageNames() =>
+        new(PackFileNames().SelectMany(pack => pack.Names).Where(name => name.EndsWith(".xxx", StringComparison.OrdinalIgnoreCase)),
+            StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Each installed official pack's display name and the file names the combined content takes from it.</summary>
     private List<(string DisplayName, HashSet<string> Names)> PackFileNames()

@@ -274,3 +274,45 @@ TEST_CASE("CAS strength 0 leaves the presenter as it is; others sharpen, clamped
   CHECK(CasEffect(0.4).sharpness == 0.4);
   CHECK(CasEffect(3.0).sharpness == 1.0);
 }
+
+TEST_CASE("host vertex formats have their byte sizes") {
+  CHECK(VertexFormatBytes(VK_FORMAT_R32_SFLOAT) == 4);
+  CHECK(VertexFormatBytes(VK_FORMAT_R32G32_SFLOAT) == 8);
+  CHECK(VertexFormatBytes(VK_FORMAT_R32G32B32_SFLOAT) == 12);
+  CHECK(VertexFormatBytes(VK_FORMAT_R32G32B32A32_SFLOAT) == 16);
+  CHECK(VertexFormatBytes(VK_FORMAT_B8G8R8A8_UNORM) == 4);
+  CHECK(VertexFormatBytes(VK_FORMAT_R16G16_SSCALED) == 4);
+  CHECK(VertexFormatBytes(VK_FORMAT_R16G16B16A16_SFLOAT) == 8);
+  CHECK(VertexFormatBytes(VK_FORMAT_A2B10G10R10_SNORM_PACK32) == 4);
+  // Every declaration type the tables know has a size.
+  for (const DeclType& t : kDeclTypes) {
+    CHECK(VertexFormatBytes(t.float_format) > 0);
+    CHECK(VertexFormatBytes(t.uint_format) > 0);
+  }
+}
+
+TEST_CASE("an element past the draw's stride widens the host stride (issue #3)") {
+  // The splash quads: declaration 40052100 has a float4 colour at +16, and
+  // DrawPrimitiveUP draws it with stride 16.
+  CHECK(HostVertexStride(16, 32) == 32);
+  CHECK(HostVertexStride(20, 20) == 20);  // its D3DCOLOR twin fits
+  CHECK(HostVertexStride(20, 16) == 20);
+  CHECK(HostVertexStride(16, 30) == 32);
+}
+
+TEST_CASE("repacked vertices hold the guest bytes Xenos fetches for each one") {
+  // Three 16-byte vertices plus the 16 bytes the last one's colour reaches.
+  uint8_t guest[64];
+  for (uint32_t i = 0; i < sizeof(guest); ++i) {
+    guest[i] = uint8_t(i);
+  }
+  uint32_t host[3 * 8] = {};
+  RepackVertices(host, guest, 3, 16, 32);
+  // Vertex 1 starts at guest byte 16 and runs to byte 48, byte-swapped per dword.
+  CHECK(host[8] == 0x10111213u);
+  CHECK(host[15] == 0x2C2D2E2Fu);
+  // The last vertex's colour comes from past its own 16 bytes.
+  CHECK(host[23] == 0x3C3D3E3Fu);
+  CHECK(GuestVertexBytes(3, 16, 32) == 64);
+  CHECK(GuestVertexBytes(3, 20, 20) == 60);
+}

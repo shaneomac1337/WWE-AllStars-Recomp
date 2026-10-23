@@ -660,6 +660,8 @@ public partial class MainWindow : Window
                     Classes = { "small" }, TextWrapping = TextWrapping.Wrap, Foreground = this.FindResource("GoldBrush") as IBrush,
                     Text = mod.IsContentMod
                         ? "Off for online play: content mods (new wrestlers) are offline only."
+                        : mod.DlcPackages.Count > 0
+                        ? "Off for online play: it replaces a package an installed DLC pack ships, which loads offline only."
                         : "Off for online play: only cosmetic mods load while online play is on.",
                 });
             var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };

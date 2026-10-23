@@ -19,12 +19,12 @@
 #include "generated/default/wweallstars_pch.h"
 
 #include <algorithm>
-#include <bit>
 #include <cstdint>
-#include <cstring>
 
 #include <rex/cvar.h>
 #include <rex/hook.h>
+
+#include "guest_memory.h"
 
 REXCVAR_DECLARE(bool, wwe_unlock_everything);  // settings_cvars.cpp
 
@@ -34,6 +34,9 @@ DECLARE_REX_FUNC(sub_82BE7A00);  // post-match award pass
 DECLARE_REX_FUNC(sub_82C1AD88);  // attire cheat code
 
 namespace {
+
+using wwe::guest::LoadU32;
+using wwe::guest::StoreU32;
 
 constexpr uint32_t kManagerPointer = 0x8374C164;  // [ ] = unlockables manager
 constexpr uint32_t kFlagsOffset = 0x34;            // manager: bit 31 = everything unlocked
@@ -48,43 +51,32 @@ constexpr uint32_t kDataCounterB = 0x38;
 // Set while the earned view is rebuilt, so the refresh hook leaves the flag clear.
 thread_local bool g_earned_view = false;
 
-uint32_t Load(const uint8_t* base, uint32_t address) {
-  uint32_t value;
-  std::memcpy(&value, base + address, sizeof(value));
-  return std::byteswap(value);
-}
-
-void Store(uint8_t* base, uint32_t address, uint32_t value) {
-  value = std::byteswap(value);
-  std::memcpy(base + address, &value, sizeof(value));
-}
-
 // Runs `original` with the item bits rebuilt from the save alone, then sets every bit
 // again. The guest argument registers are kept for the original call and its result
 // register r3 for the caller.
 template <typename Original>
 void WithEarnedView(PPCContext& ctx, uint8_t* base, Original original) {
-  const uint32_t manager = Load(base, kManagerPointer);
-  const uint32_t data = manager ? Load(base, manager + kDataOffset) : 0;
+  const uint32_t manager = LoadU32(base, kManagerPointer);
+  const uint32_t data = manager ? LoadU32(base, manager + kDataOffset) : 0;
   if (!REXCVAR_GET(wwe_unlock_everything) || data == 0) {
     original(ctx, base);
     return;
   }
 
   const PPCRegister args[] = {ctx.r3, ctx.r4, ctx.r5, ctx.r6, ctx.r7, ctx.r8, ctx.r9, ctx.r10};
-  const uint32_t counter_a = Load(base, data + kDataCounterA);
-  const uint32_t counter_b = Load(base, data + kDataCounterB);
+  const uint32_t counter_a = LoadU32(base, data + kDataCounterA);
+  const uint32_t counter_b = LoadU32(base, data + kDataCounterB);
 
-  Store(base, manager + kFlagsOffset,
-        Load(base, manager + kFlagsOffset) & ~kEverythingUnlocked);
+  StoreU32(base, manager + kFlagsOffset,
+        LoadU32(base, manager + kFlagsOffset) & ~kEverythingUnlocked);
   g_earned_view = true;
   ctx.r3.u64 = manager;
   sub_82BE6328(ctx, base);
   ctx.r3.u64 = manager;
   sub_82BE7560(ctx, base);
   g_earned_view = false;
-  Store(base, data + kDataCounterA, counter_a);
-  Store(base, data + kDataCounterB, counter_b);
+  StoreU32(base, data + kDataCounterA, counter_a);
+  StoreU32(base, data + kDataCounterB, counter_b);
 
   ctx.r3 = args[0];
   ctx.r4 = args[1];
@@ -112,7 +104,7 @@ void WweUnlockEverything(PPCRegister& r3) {
   }
   uint8_t* base = REX_KERNEL_MEMORY()->virtual_membase();
   const uint32_t address = r3.u32 + kFlagsOffset;
-  Store(base, address, Load(base, address) | kEverythingUnlocked);
+  StoreU32(base, address, LoadU32(base, address) | kEverythingUnlocked);
 }
 
 void WweUnlockFantasyWarfare(PPCRegister& r3, PPCRegister& r23) {

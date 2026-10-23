@@ -14,7 +14,7 @@ public sealed class ModContentTests : IDisposable
     private readonly PortableLayout _layout;
     private readonly FakeLinker _linker = new();
 
-    private static readonly KnownGameFiles Known = new(["CHR_101_A.xxx", "Engine.xxx"],
+    private static readonly KnownGameFiles Known = new(["CHR_101_A.xxx", "CHR_219_A.xxx", "Engine.xxx"],
         ["Xe-Engine.ini", "Xe-Game.ini", "int/CharacterNames.int", "spa/CharacterNames.spa"]);
     private static readonly byte[] PlainPackage = new TestPackage().Bytes();
     private static readonly byte[] WholeFilePackage = new TestPackage { Compressed = TestPackage.Compression.WholeFile }.Bytes();
@@ -76,6 +76,25 @@ public sealed class ModContentTests : IDisposable
             File.WriteAllBytes(target, TestPackage.ForFile(bytes, Path.GetFileName(path)));
         }
         return folder;
+    }
+
+    /// <summary>A mod of loose <c>packages/</c> files, each made under its own name.</summary>
+    private string PackageMod(string id, string kind, params (string Name, byte[] Bytes)[] packages)
+    {
+        var folder = Path.Combine(_layout.ModsDirectory, id);
+        Directory.CreateDirectory(Path.Combine(folder, "packages"));
+        File.WriteAllText(Path.Combine(folder, ModLibrary.ManifestFileName),
+            $"name = \"{id}\"\nversion = \"1.0\"\ngame = \"TU2\"\nkind = \"{kind}\"\n");
+        foreach (var (name, bytes) in packages)
+            File.WriteAllBytes(Path.Combine(folder, "packages", name), TestPackage.ForFile(bytes, name));
+        return folder;
+    }
+
+    /// <summary>Pack 1 with Cody's attire, which the disc ships too (DLC mods research §2).</summary>
+    private void Pack1WithCody()
+    {
+        var pack = Pack1();
+        File.WriteAllBytes(Path.Combine(pack, "Phase1", "CHR_219_A.xxx"), TestPackage.ForFile(PlainPackage, "CHR_219_A.xxx"));
     }
 
     private static byte[] Text(string text) => Encoding.ASCII.GetBytes(text);
@@ -494,5 +513,121 @@ public sealed class ModContentTests : IDisposable
 
         Assert.False(mod.Enabled);
         Assert.Equal(problem, Assert.Single(mod.Problems));
+    }
+
+    [Fact]
+    public void A_package_a_pack_ships_goes_into_the_combined_content_and_not_the_update_folder()
+    {
+        var tu2 = Tu2();
+        Pack1WithCody();
+        var mine = TestPackage.ForFile(WholeFilePackage, "CHR_219_A.xxx");
+        PackageMod("Cody", "cosmetic", ("CHR_219_A.xxx", WholeFilePackage), ("CHR_101_A.xxx", PlainPackage));
+        var library = LibraryWithOn("Cody");
+
+        var prepared = library.PrepareForPlay(tu2, online: false);
+
+        Assert.Equal(mine, File.ReadAllBytes(Path.Combine(Combined, "CHR_219_A.xxx")));
+        var expanded = BinaryPrimitives.ReadInt32LittleEndian(mine.AsSpan(12));
+        Assert.Contains($@"{mine.Length} {expanded} 0 .\CHR_219_A.xxx 0", TocLines());
+        // The package no pack ships still goes into the update folder, with its PatchTOC.txt line.
+        Assert.Equal(library.OverlayDirectory, prepared.UpdateDataRoot);
+        Assert.False(File.Exists(Path.Combine(library.OverlayDirectory, "CHR_219_A.xxx")));
+        Assert.True(File.Exists(Path.Combine(library.OverlayDirectory, "CHR_101_A.xxx")));
+        var patchToc = File.ReadAllText(Path.Combine(library.OverlayDirectory, "PatchTOC.txt"));
+        Assert.DoesNotContain("CHR_219_A", patchToc, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(@".\CHR_101_A.xxx", patchToc, StringComparison.Ordinal);
+        Assert.Contains("mod 1: Cody 1.0 (Cody): CHR_101_A.xxx, CHR_219_A.xxx", prepared.Report.Lines());
+    }
+
+    /// <summary>Drops <paramref name="files"/> as one zip on the Mods tab and installs its loose-file wrap.</summary>
+    private ModInfo WrapZip(ModLibrary library, params (string Name, byte[] Bytes)[] files)
+    {
+        var zip = Path.Combine(_root, "download.zip");
+        TestArchives.Zip(zip, [.. files.Select(file => (file.Name, TestPackage.ForFile(file.Bytes, Path.GetFileName(file.Name))))]);
+        using var intake = library.Inspect([zip], TestContext.Current.CancellationToken);
+        Assert.Empty(intake.Refusals);
+        var id = library.Wrap(Assert.Single(intake.Wraps), "Wrapped", cosmetic: true, TestContext.Current.CancellationToken);
+        return Assert.Single(library.List(), mod => mod.Id == id);
+    }
+
+    [Fact]
+    public void A_zip_with_one_top_level_folder_around_a_package_installs()
+    {
+        Pack1WithCody();
+
+        var mod = WrapZip(Library(), ("cody rhodes American nightmare/CHR_219_A.xxx", WholeFilePackage));
+
+        Assert.Empty(mod.Problems);
+        Assert.Equal("CHR_219_A.xxx", Assert.Single(mod.Packages).Name);
+    }
+
+    [Fact]
+    public void A_package_only_a_pack_ships_installs_once_the_pack_is_installed()
+    {
+        var zip = Path.Combine(_root, "dlc-only.zip");
+        TestArchives.Zip(zip, [("CHR_110_A.xxx", TestPackage.ForFile(PlainPackage, "CHR_110_A.xxx"))]);
+        using (var intake = Library().Inspect([zip], TestContext.Current.CancellationToken))
+            Assert.Contains("CHR_110_A.xxx is not a game package", Assert.Single(intake.Refusals).Reason);
+        Pack1();
+
+        var mod = WrapZip(Library(), ("CHR_110_A.xxx", PlainPackage));
+
+        Assert.Empty(mod.Problems);
+        Assert.Equal(["CHR_110_A.xxx"], mod.DlcPackages.Select(package => package.Name));
+    }
+
+    [Fact]
+    public void A_mod_replacing_a_packs_package_is_offline_only()
+    {
+        var tu2 = Tu2();
+        Pack1WithCody();
+        PackageMod("Cody", "cosmetic", ("CHR_219_A.xxx", WholeFilePackage));
+        var library = LibraryWithOn("Cody");
+        library.PrepareForPlay(tu2, online: false);
+
+        var mod = Assert.Single(library.List());
+        var report = library.PrepareForPlay(tu2, online: true).Report;
+
+        Assert.Equal(ModKind.Gameplay, mod.Kind);
+        Assert.True(mod.IsOffForOnline(online: true));
+        Assert.Equal("Gameplay. Declared cosmetic, but it replaces CHR_219_A.xxx, which an installed DLC pack ships; that loads offline only.",
+            ModOnlineRule.KindLine(mod, online: true));
+        Assert.Empty(report.Used);
+        Assert.Contains("mods: 1 off for online play", report.Lines());
+        Assert.False(Directory.Exists(Combined));
+    }
+
+    [Fact]
+    public void Without_the_pack_a_package_mod_goes_into_the_update_folder_and_loads_online()
+    {
+        var tu2 = Tu2();
+        PackageMod("Cody", "cosmetic", ("CHR_219_A.xxx", WholeFilePackage));
+        var library = LibraryWithOn("Cody");
+
+        var prepared = library.PrepareForPlay(tu2, online: true);
+
+        Assert.Equal(ModKind.Cosmetic, Assert.Single(library.List()).Kind);
+        Assert.True(File.Exists(Path.Combine(prepared.UpdateDataRoot, "CHR_219_A.xxx")));
+        Assert.False(Directory.Exists(Combined));
+    }
+
+    [Fact]
+    public void Installing_or_removing_the_pack_rebuilds_the_update_folder()
+    {
+        var tu2 = Tu2();
+        PackageMod("Cody", "cosmetic", ("CHR_219_A.xxx", WholeFilePackage), ("CHR_101_A.xxx", PlainPackage));
+        var library = LibraryWithOn("Cody");
+        string PatchToc() => File.ReadAllText(Path.Combine(library.OverlayDirectory, "PatchTOC.txt"));
+        library.PrepareForPlay(tu2, online: false);
+
+        Pack1WithCody();
+        library.PrepareForPlay(tu2, online: false);
+        Assert.False(File.Exists(Path.Combine(library.OverlayDirectory, "CHR_219_A.xxx")));
+        Assert.DoesNotContain("CHR_219_A", PatchToc(), StringComparison.Ordinal);
+
+        Directory.Delete(Path.Combine(ContentRoot, DlcLibrary.Pack1FileName), recursive: true);
+        library.PrepareForPlay(tu2, online: false);
+        Assert.True(File.Exists(Path.Combine(library.OverlayDirectory, "CHR_219_A.xxx")));
+        Assert.Contains("CHR_219_A", PatchToc(), StringComparison.Ordinal);
     }
 }

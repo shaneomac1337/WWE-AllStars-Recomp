@@ -37,6 +37,9 @@ set(WWEALLSTARS_SOURCES
     src/gpu_wait.cpp
     src/resolve_watch.cpp
     src/online_trace_hooks.cpp
+    src/online/syncsim_stats_hook.cpp
+    src/online/step_rate_hooks.cpp
+    src/online/net_wake_hooks.cpp
     src/unlock_everything.cpp
     src/script_input.cpp
     src/vibration/enhanced_hooks.cpp
@@ -305,6 +308,8 @@ if(WWE_BUILD_TESTS AND REXSDK_DIR)
         tests/core/test_crash_zip.cpp
         tests/core/test_crash_dump_request.cpp
         tests/core/test_spin_waits.cpp
+        tests/core/test_syncsim_stats.cpp
+        tests/core/test_step_rate.cpp
         tests/core/test_settings_config.cpp
         tests/core/test_settings_registry.cpp
         tests/core/test_settings_schema.cpp
@@ -314,6 +319,7 @@ if(WWE_BUILD_TESTS AND REXSDK_DIR)
         tests/core/test_exit_row.cpp
         tests/core/test_startup_paths.cpp
         tests/core/test_image_check.cpp
+        tests/core/test_arrival_watcher.cpp
         tests/core/test_overlapped_receive.cpp
         tests/core/test_online_addressing.cpp
         tests/core/test_online_client.cpp
@@ -356,6 +362,8 @@ if(WWE_BUILD_TESTS AND REXSDK_DIR)
         ${REXSDK_DIR}/thirdparty/catch2/extras ${REXSDK_DIR}/thirdparty/tomlplusplus/include
         ${REXSDK_DIR}/thirdparty/inja/third_party/include ${REXSDK_DIR}/thirdparty/xxHash)
     target_link_libraries(wweallstars_native_tests PRIVATE rex::runtime wweallstars_native_deps)
+    # The arrival-watcher test sends real loopback datagrams.
+    target_link_libraries(wweallstars_native_tests PRIVATE ws2_32)
     target_compile_definitions(wweallstars_native_tests PRIVATE
         WWE_EXPECTED_SHADER_CONVERTER_ID=0x${WWEALLSTARS_EXPECTED_CONVERTER_ID}ull
         WWE_DISC_MANIFEST_VERSION="${WWEALLSTARS_MANIFEST_VERSION}")

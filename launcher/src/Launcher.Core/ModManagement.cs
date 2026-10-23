@@ -55,7 +55,8 @@ public sealed partial class ModLibrary
             var byFile = new Dictionary<string, (string File, List<string> Mods)>(StringComparer.OrdinalIgnoreCase);
             var enabled = Scan().Where(mod => mod.Enabled).ToList();
             foreach (var mod in enabled)
-                foreach (var package in mod.Packages)
+                // A package a pack ships goes into the combined content; its clashes are content conflicts.
+                foreach (var package in mod.OverlayPackages)
                 {
                     if (!byFile.TryGetValue(package.Name, out var clash))
                         byFile[package.Name] = clash = (package.Name, []);

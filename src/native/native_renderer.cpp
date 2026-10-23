@@ -1982,12 +1982,26 @@ const DeclEntry* GetShaderLayout(const uint8_t* base, uint32_t object, const Nat
   return entry.valid ? &entry : nullptr;
 }
 
+// The bytes past a vertex's start that its stream's attributes reach.
+uint32_t StreamExtent(const VertexLayout& layout, uint32_t stream) {
+  uint32_t extent = 0;
+  for (uint32_t i = 0; i < layout.attribute_count; ++i) {
+    const VertexAttribute& a = layout.attributes[i];
+    if (a.stream == stream) {
+      extent = std::max(extent, a.offset + guest::VertexFormatBytes(a.format));
+    }
+  }
+  return extent;
+}
+
 // Shaders, declaration, render targets, pipeline, constants and dynamic
 // state shared by both draw kinds. Leaves the pipeline bound; returns the
-// declaration's layout, or nullptr when the draw is skipped.
+// declaration's layout, or nullptr when the draw is skipped. widen_strides:
+// the caller repacks its vertices, so a stride short of the attributes is
+// widened to cover them (guest::HostVertexStride).
 const VertexLayout* PrepareDraw(const uint8_t* base, const uint8_t* d3d,
                                 VkPrimitiveTopology topology,
-                                uint32_t strides[kMaxStreams]) {
+                                uint32_t strides[kMaxStreams], bool widen_strides = false) {
   const NativeShader* vertex_shader =
       shader_library::Find(LoadBE32(d3d + kDeviceVertexShader));
   // No pixel shader bound: a depth-only draw (ticket 38), not a missing shader.
@@ -2029,6 +2043,11 @@ const VertexLayout* PrepareDraw(const uint8_t* base, const uint8_t* d3d,
     return nullptr;
   }
   const VertexLayout& layout = declaration->layout;
+  if (widen_strides) {
+    for (uint32_t stream = 0; stream < kMaxStreams; ++stream) {
+      strides[stream] = guest::HostVertexStride(strides[stream], StreamExtent(layout, stream));
+    }
+  }
   const uint32_t depth_control = ReadReg(d3d, RB_DEPTHCONTROL);
   if (!EnsureRendering(d3d, (depth_control & 7) != 0)) {
     SkipDraw(Skip::kNoRenderTarget, pixel_shader->hash);
@@ -2207,12 +2226,26 @@ void OnDrawVertices(const uint8_t* base, uint32_t device, uint32_t primitive,
   }
   uint32_t strides[kMaxStreams] = {stride};
   const uint8_t* d3d = base + device;
-  if (!PrepareDraw(base, d3d, topology, strides)) {
+  if (!PrepareDraw(base, d3d, topology, strides, true)) {
     return;
   }
-  if (!UploadVertices(base + vertices, vertex_count * stride, 0, stride)) {
-    SkipDraw(Skip::kVertexUpload, vertex_count * stride);
-    return;
+  const uint32_t host_stride = strides[0];
+  if (host_stride == stride) {
+    if (!UploadVertices(base + vertices, vertex_count * stride, 0, stride)) {
+      SkipDraw(Skip::kVertexUpload, vertex_count * stride);
+      return;
+    }
+  } else {
+    // An element past the game's stride (issue #3): each vertex gets the
+    // guest bytes Xenos fetches for it, the next vertex's included.
+    const Upload upload = AllocateUpload(size_t(vertex_count) * host_stride, 16);
+    if (!upload.data) {
+      SkipDraw(Skip::kVertexUpload, vertex_count * host_stride);
+      return;
+    }
+    guest::RepackVertices(reinterpret_cast<uint32_t*>(upload.data), base + vertices,
+                          vertex_count, stride, host_stride);
+    BindVertexBuffer(0, upload.buffer, upload.offset, host_stride);
   }
   const VkCommandBuffer cb = g.slot->main_cb;
   const auto& dfn = *g_vk.dfn;

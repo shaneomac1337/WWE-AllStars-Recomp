@@ -31,15 +31,18 @@ public sealed partial class ModLibrary
             // The online rule: with online play on, only cosmetic mods load.
             var leftOut = enabled.Where(mod => mod.IsOffForOnline(online)).ToList();
             var inUse = enabled.Except(leftOut).ToList();
+            // A package an installed pack also ships goes into the combined content: the game finds it there first.
             var winners = new Dictionary<string, ModPackage>(StringComparer.OrdinalIgnoreCase);
             foreach (var mod in inUse)
-                foreach (var package in mod.Packages)
+                foreach (var package in mod.OverlayPackages)
                     winners[package.Name] = package;
             var leftOutMods = leftOut.Select(mod => new LeftOutMod(mod.Id, mod.Manifest!.Name, mod.Manifest.Version,
-                mod.ForcedGameplayReason ?? (mod.IsContentMod ? "a content mod (new wrestlers), offline only." : "a gameplay mod."))).ToList();
+                mod.ForcedGameplayReason ?? (mod.IsContentMod ? "a content mod (new wrestlers), offline only."
+                    : mod.DlcPackages.Count > 0 ? "it replaces a package an installed DLC pack ships, offline only."
+                    : "a gameplay mod."))).ToList();
 
-            // The combined content: built with a content mod in use, otherwise gone (spec, "Removed when not wanted").
-            var contentMods = inUse.Where(mod => mod.IsContentMod).ToList();
+            // The combined content: built with a content mod or a pack's package in use, otherwise gone (spec, "Removed when not wanted").
+            var contentMods = inUse.Where(mod => mod.UsesCombinedContent).ToList();
             CombinedContentReport? content = null;
             ILookup<string, string> supplied = Array.Empty<string>().ToLookup(id => id);
             List<ModConflict> contentConflicts = [];
@@ -54,7 +57,7 @@ public sealed partial class ModLibrary
                 throw new LauncherException($"The content mods could not be prepared in {Dlc.ContentDirectory}: {error.Message}", error);
             }
 
-            var overlayMods = inUse.Where(mod => mod.Packages.Count > 0 || mod.Config.Count > 0).ToList();
+            var overlayMods = inUse.Where(mod => mod.OverlayPackages.Any() || mod.Config.Count > 0).ToList();
             var updateRoot = titleUpdateFolder;
             ConfigMerge? config = null;
             if (overlayMods.Count > 0)
@@ -75,7 +78,8 @@ public sealed partial class ModLibrary
             }
             var report = new ModLoadReport([.. inUse.Select(mod => new UsedMod(mod.Id, mod.Manifest!.Name, mod.Manifest.Version,
             [
-                .. mod.Packages.Where(package => ReferenceEquals(winners[package.Name], package)).Select(package => package.Name),
+                .. mod.Packages.Where(package => winners.TryGetValue(package.Name, out var winner) && ReferenceEquals(winner, package)
+                    || mod.DlcPackages.Contains(package) && supplied[mod.Id].Contains(package.Name)).Select(package => package.Name),
                 .. config is null ? [] : mod.Config.Where(config.Applied.Contains).Select(file => file.Shown),
                 .. mod.Content.Select(file => file.Shown).Where(supplied[mod.Id].Contains),
             ]))])
@@ -103,7 +107,8 @@ public sealed partial class ModLibrary
         foreach (var mod in inUse)
         {
             stamp.Append("mod ").Append(mod.Id).Append('\n');
-            foreach (var package in mod.Packages) Add("package", package.Path);
+            // Not the pack's packages: installing or removing a pack moves them, and must rebuild the folder.
+            foreach (var package in mod.OverlayPackages) Add("package", package.Path);
             foreach (var file in mod.Config) Add($"config {file.Bundle}", file.Path);
         }
         return stamp.ToString();

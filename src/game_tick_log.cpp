@@ -35,6 +35,7 @@
 #include <rex/thread.h>
 
 #include "game_tick_log.h"
+#include "guest_memory.h"
 #include "spin_waits.h"
 
 REXCVAR_DEFINE_BOOL(wwe_tick_log, false, "WWEAllStars",
@@ -53,6 +54,9 @@ REXCVAR_DECLARE(bool, wwe_60fps_entrances);  // settings_cvars.cpp
 REXCVAR_DECLARE(bool, wwe_120fps_matches);   // settings_cvars.cpp
 
 namespace {
+
+using wwe::guest::LoadU32;
+using wwe::guest::StoreU32;
 
 using Clock = std::chrono::steady_clock;
 
@@ -109,6 +113,12 @@ void FollowTickRate(bool ticks_120) {
 struct Waits {
   uint64_t limiter_ns = 0, render_ns = 0, other_ns = 0;
   uint64_t Total() const { return limiter_ns + render_ns + other_ns; }
+  Waits& operator+=(const Waits& other) {
+    limiter_ns += other.limiter_ns;
+    render_ns += other.render_ns;
+    other_ns += other.other_ns;
+    return *this;
+  }
 };
 thread_local Waits t_waits;
 // When the current render-thread wait on this thread began.
@@ -118,14 +128,10 @@ struct Second {
   Clock::time_point start{};
   uint32_t ticks = 0, half_rate_ticks = 0, other_step_ticks = 0, at_60_ticks = 0;
   double work_sum_ms = 0, work_max_ms = 0, total_max_ms = 0;
+  // Time in each kind of appSleep wait this second (an online match's SyncSim hold is "other").
+  Waits waits;
   float dilation_min = 1e9f, dilation_max = -1e9f;
 } g_second;
-
-uint32_t LoadU32(const uint8_t* base, uint32_t address) {
-  uint32_t value;
-  std::memcpy(&value, base + address, sizeof(value));
-  return std::byteswap(value);
-}
 
 float LoadF32(const uint8_t* base, uint32_t address) {
   return std::bit_cast<float>(LoadU32(base, address));
@@ -141,11 +147,6 @@ double LimiterRemaining(const uint8_t* base, uint32_t self) {
   const double dt = double(LoadF32(base, self + kDeltaSecondsOffset)) *
                     double(LoadF32(base, self + kDilationOffset));
   return LoadF64(base, self + kFrameStartOffset) + dt - LoadF64(base, kCurrentTime);
-}
-
-void StoreU32(uint8_t* base, uint32_t address, uint32_t value) {
-  value = std::byteswap(value);
-  std::memcpy(base + address, &value, sizeof(value));
 }
 
 double Ms(Clock::duration d) { return std::chrono::duration<double, std::milli>(d).count(); }
@@ -174,6 +175,7 @@ void Record(const uint8_t* base, uint32_t self, Clock::duration total, const Wai
   s.half_rate_ticks += std::abs(step - 1.0f / 30) < 1e-4f;
   s.other_step_ticks += std::abs(step - 1.0f / 60) >= 1e-4f && std::abs(step - 1.0f / 30) >= 1e-4f;
   s.work_sum_ms += work_ms;
+  s.waits += waits;
   s.work_max_ms = std::max(s.work_max_ms, work_ms);
   s.total_max_ms = std::max(s.total_max_ms, total_ms);
   s.dilation_min = std::min(s.dilation_min, dilation);
@@ -190,10 +192,11 @@ void Record(const uint8_t* base, uint32_t self, Clock::duration total, const Wai
     }
     REXLOG_INFO("game tick 1s: {} ticks ({} at 1/30 s, {} other steps, {} cinematic at "
                 "1/60 s), work mean {:.2f} ms max {:.1f} ms, tick max {:.1f} ms, dilation "
-                "{:.3f}..{:.3f}",
+                "{:.3f}..{:.3f}, waits limiter {:.0f} ms render {:.0f} ms other {:.0f} ms",
                 s.ticks, s.half_rate_ticks, s.other_step_ticks, s.at_60_ticks,
                 s.work_sum_ms / s.ticks, s.work_max_ms, s.total_max_ms, s.dilation_min,
-                s.dilation_max);
+                s.dilation_max, s.waits.limiter_ns / 1e6, s.waits.render_ns / 1e6,
+                s.waits.other_ns / 1e6);
     s = Second{};
     s.start = now;
   }

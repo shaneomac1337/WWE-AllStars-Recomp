@@ -5,6 +5,8 @@
 #include <chrono>
 #include <cstdint>
 #include <deque>
+#include <utility>
+#include <vector>
 
 using rex::system::net::OverlappedReceives;
 using namespace std::chrono_literals;
@@ -146,4 +148,85 @@ TEST_CASE("closing a socket forgets only its pending receives", "[net]") {
   FakeTime time;
   auto gone = receives.Poll(0x100, 0ms, socket, [&] { return time.now; }, [] {});
   CHECK(gone.status == OverlappedReceives<Request>::Status::kNotPending);
+}
+
+// WSAWaitForMultipleEvents -> NT wait (ticket online-latency 04).
+using rex::system::net::EventWaitResult;
+using rex::system::net::PlanEventWait;
+
+TEST_CASE("a millisecond wait becomes a relative, non-zero NT timeout", "[net]") {
+  const auto wait = PlanEventWait(/*wait_all=*/0, /*timeout_ms=*/10);
+  REQUIRE(wait.timeout_ticks.has_value());
+  CHECK(*wait.timeout_ticks == -100000);  // 10 ms in 100 ns units, negative = relative
+}
+
+TEST_CASE("an infinite event wait has no timeout, a zero one stays zero", "[net]") {
+  CHECK_FALSE(PlanEventWait(0, 0xFFFFFFFF).timeout_ticks.has_value());
+  CHECK(PlanEventWait(0, 0).timeout_ticks == 0);
+}
+
+TEST_CASE("fWaitAll FALSE waits for any event, TRUE for all", "[net]") {
+  CHECK(PlanEventWait(0, 10).nt_wait_type == 1);  // KWAIT_TYPE WaitAny
+  CHECK(PlanEventWait(1, 10).nt_wait_type == 0);  // KWAIT_TYPE WaitAll
+}
+
+TEST_CASE("wait any returns the index of the first signalled event", "[net]") {
+  CHECK(EventWaitResult(/*nt_status=*/0, /*count=*/8) == 0);
+  CHECK(EventWaitResult(3, 8) == 3);
+}
+
+TEST_CASE("an event wait that times out returns WSA_WAIT_TIMEOUT, not 0", "[net]") {
+  CHECK(EventWaitResult(0x102, 8) == 0x102);
+}
+
+TEST_CASE("an alerted event wait returns WSA_WAIT_IO_COMPLETION", "[net]") {
+  CHECK(EventWaitResult(0xC0, 8) == 0xC0);
+}
+
+TEST_CASE("a failed event wait returns WSA_WAIT_FAILED", "[net]") {
+  CHECK(EventWaitResult(0xC000000D, 8) == 0xFFFFFFFF);  // STATUS_INVALID_PARAMETER
+}
+
+TEST_CASE("an arrival completes the pending receive of that socket only", "[net]") {
+  OverlappedReceives<Request> receives;
+  FakeSocket nothing;
+  receives.Start(0x100, {1, 0}, nothing);
+  receives.Start(0x200, {2, 0}, nothing);
+  CHECK(receives.Sockets() == std::vector<uint32_t>{1, 2});
+  FakeSocket arrived{{64}};
+  std::vector<std::pair<uint32_t, int>> completed;
+  const int count = receives.Arrived(
+      2, arrived, [&](uint32_t overlapped, int bytes) { completed.push_back({overlapped, bytes}); });
+  CHECK(count == 1);
+  CHECK(completed == std::vector<std::pair<uint32_t, int>>{{0x200, 64}});
+  CHECK(receives.Sockets() == std::vector<uint32_t>{1});
+  // The guest's own poll then finds the receive already finished.
+  FakeTime time;
+  auto later = receives.Poll(0x200, 0ms, nothing, [&] { return time.now; }, [] {});
+  CHECK(later.status == OverlappedReceives<Request>::Status::kNotPending);
+}
+
+TEST_CASE("an arrival with no datagram left keeps the receive pending", "[net]") {
+  OverlappedReceives<Request> receives;
+  FakeSocket nothing;
+  receives.Start(0x100, {1, 0}, nothing);
+  int completed = 0;
+  CHECK(receives.Arrived(1, nothing, [&](uint32_t, int) { ++completed; }) == 0);
+  CHECK(completed == 0);
+  CHECK(receives.pending() == 1);
+}
+
+TEST_CASE("a wake of the network thread returns WSA_WAIT_TIMEOUT so the title runs its pass",
+          "[net]") {
+  // The host's wake event sits after the title's 8 events.
+  CHECK(EventWaitResult(8, 8, /*wake_slot=*/true) == 0x102);
+  CHECK(EventWaitResult(2, 8, /*wake_slot=*/true) == 2);
+  CHECK(EventWaitResult(8, 8) == 0xFFFFFFFF);  // no wake slot: out of range
+}
+
+TEST_CASE("only a blocking wait for any event takes the wake event", "[net]") {
+  CHECK(PlanEventWait(0, 10).wakeable);
+  CHECK(PlanEventWait(0, 0xFFFFFFFF).wakeable);
+  CHECK_FALSE(PlanEventWait(0, 0).wakeable);   // a poll of the events' state
+  CHECK_FALSE(PlanEventWait(1, 10).wakeable);  // fWaitAll: the wake would have to fire too
 }

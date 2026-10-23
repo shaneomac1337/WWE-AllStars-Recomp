@@ -143,6 +143,67 @@ constexpr DeclType kDeclTypes[] = {
     {0x1A2360, VK_FORMAT_R16G16B16A16_SFLOAT, VK_FORMAT_R16G16B16A16_UINT, true, false},
 };
 
+// Bytes one vertex attribute of a kDeclTypes host format takes; 0 for others.
+constexpr uint32_t VertexFormatBytes(VkFormat format) {
+  switch (format) {
+    case VK_FORMAT_R32G32B32A32_SFLOAT:
+    case VK_FORMAT_R32G32B32A32_UINT:
+      return 16;
+    case VK_FORMAT_R32G32B32_SFLOAT:
+    case VK_FORMAT_R32G32B32_UINT:
+      return 12;
+    case VK_FORMAT_R32G32_SFLOAT:
+    case VK_FORMAT_R32G32_UINT:
+    case VK_FORMAT_R16G16B16A16_SSCALED:
+    case VK_FORMAT_R16G16B16A16_SNORM:
+    case VK_FORMAT_R16G16B16A16_UNORM:
+    case VK_FORMAT_R16G16B16A16_SFLOAT:
+    case VK_FORMAT_R16G16B16A16_UINT:
+      return 8;
+    case VK_FORMAT_R32_SFLOAT:
+    case VK_FORMAT_R32_UINT:
+    case VK_FORMAT_B8G8R8A8_UNORM:
+    case VK_FORMAT_B8G8R8A8_UINT:
+    case VK_FORMAT_R8G8B8A8_USCALED:
+    case VK_FORMAT_R8G8B8A8_UNORM:
+    case VK_FORMAT_R8G8B8A8_SNORM:
+    case VK_FORMAT_R8G8B8A8_UINT:
+    case VK_FORMAT_R16G16_SSCALED:
+    case VK_FORMAT_R16G16_SNORM:
+    case VK_FORMAT_R16G16_UNORM:
+    case VK_FORMAT_R16G16_SFLOAT:
+    case VK_FORMAT_R16G16_UINT:
+    case VK_FORMAT_A2B10G10R10_USCALED_PACK32:
+    case VK_FORMAT_A2B10G10R10_SNORM_PACK32:
+      return 4;
+    default:
+      return 0;
+  }
+}
+
+// A declaration may place an element past the stride the game draws with
+// (the splash quads, issue #3: float4 colour at +16, DrawPrimitiveUP stride
+// 16). Xenos then fetches the next vertex's bytes; Vulkan needs a stride that
+// covers every attribute (VUID-vkCmdBindVertexBuffers2-pStrides-06209). The
+// host stride is the guest one, or the widest attribute extent rounded to 4.
+constexpr uint32_t HostVertexStride(uint32_t guest_stride, uint32_t extent) {
+  return extent > guest_stride ? (extent + 3) & ~3u : guest_stride;
+}
+
+// Guest bytes count vertices fetch: the last one reads a full host stride.
+constexpr uint32_t GuestVertexBytes(uint32_t count, uint32_t guest_stride, uint32_t host_stride) {
+  return count ? (count - 1) * guest_stride + host_stride : 0;
+}
+
+// Copies count vertices to host_stride apart, each from its guest stride
+// position, as 32-bit big-endian words. Both strides are multiples of 4.
+inline void RepackVertices(uint32_t* dst, const uint8_t* src, uint32_t count,
+                           uint32_t guest_stride, uint32_t host_stride) {
+  for (uint32_t i = 0; i < count; ++i) {
+    SwapCopy32(dst + i * (host_stride / 4), src + i * guest_stride, host_stride / 4);
+  }
+}
+
 constexpr const DeclType* FindDeclType(uint32_t type) {
   for (const DeclType& t : kDeclTypes) {
     if (t.type == type) {

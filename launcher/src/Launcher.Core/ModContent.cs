@@ -190,7 +190,8 @@ public sealed partial class ModLibrary
     }
 
     /// <summary>
-    /// Builds the combined content for <paramref name="contentMods"/> (in load order), or keeps
+    /// Builds the combined content for <paramref name="contentMods"/> (in load order, with their
+    /// <see cref="ModInfo.DlcPackages"/>), or keeps
     /// the one built for the same packs and files. Returns its report and each mod's winning files.
     /// </summary>
     private (CombinedContentReport Report, ILookup<string, string> Supplied) PrepareCombined(List<ModInfo> contentMods)
@@ -231,6 +232,7 @@ public sealed partial class ModLibrary
         foreach (var mod in contentMods)
         {
             modNumber++;
+            foreach (var package in mod.DlcPackages) files[package.Name] = new(package.Path, null, mod, package.Name);
             foreach (var file in mod.Content)
             {
                 var name = Path.GetFileName(file.Path);
@@ -302,6 +304,7 @@ public sealed partial class ModLibrary
         foreach (var mod in mods)
         {
             stamp.Append("mod ").Append(mod.Id).Append('\n');
+            foreach (var package in mod.DlcPackages) Add($"{PackagesFolderName}/{package.Name}", package.Path);
             foreach (var file in mod.Content) Add(file.Shown, file.Path);
         }
         return stamp.ToString();

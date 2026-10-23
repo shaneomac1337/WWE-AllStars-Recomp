@@ -1,7 +1,7 @@
 """Parse and compare Quazal Net-Z SyncSim replay logs (GAME:\\Station<n>.log).
 
 Usage:
-  python scripts/syncsim_log.py dump <Station.log> [--ticks A:B]
+  python scripts/syncsim_log.py dump <Station.log> [--ticks A:B] [--stats]
   python scripts/syncsim_log.py compare <Station1.log> <Station2.log>
 
 Exit codes: 0 in sync (or dump done), 1 checksums differ, 2 no common steps,
@@ -42,6 +42,7 @@ HEADER_FIELDS = ("rng_seed", "diverging_step", "last_input_step", "last_step",
 CHECKSUM_NAMES = ("UserChecksum0", "UserChecksum1", "UserChecksum2", "UserChecksum3",
                   "UserChecksum4", "SimulationChecksum")
 SIM_CHECKSUM = 5  # 0x830DD968 passes index 5 to the live compare 0x830DD830
+STATION_INFO_DATASET = 0  # SimStation's first dataset: StepFrequency, MaxRTT, MinBandwidth
 STATION_CHECKSUM_DATASET = 1  # SimStation's second dataset
 
 CLASS_SIMSTATION = 0x14
@@ -161,22 +162,48 @@ def _parse_step(p: bytes, seq: int, offset: int, path: Path) -> Step:
     return Step(seq, step, last_input, objs, offset)
 
 
-def checksum_series(log: ReplayLog) -> dict[int, tuple[int | None, ...]]:
-    """Step -> full StationChecksum (6 values) of the station's own SimStation,
-    rebuilt from the delta records. None for fields not yet sent."""
-    state: list[int | None] = [None] * len(CHECKSUM_NAMES)
+def _dataset_series(log: ReplayLog, dataset: int, width: int) -> dict[int, tuple[int | None, ...]]:
+    """Step -> full values of one dataset of the station's own SimStation, rebuilt
+    from the delta records. None for fields not yet sent."""
+    state: list[int | None] = [None] * width
     out = {}
     for s in log.steps:
         sims = [o for o in s.objects if o.cls == CLASS_SIMSTATION]
         if len(sims) != 1:
             raise FormatError(f"{log.path}: step {s.step} has {len(sims)} SimStation objects")
-        mask, vals = sims[0].datasets[STATION_CHECKSUM_DATASET]
+        mask, vals = sims[0].datasets[dataset]
         it = iter(vals)
-        for bit in range(len(CHECKSUM_NAMES)):
+        for bit in range(width):
             if mask & (1 << bit):
                 state[bit] = next(it)
         out[s.step] = tuple(state)
     return out
+
+
+def checksum_series(log: ReplayLog) -> dict[int, tuple[int | None, ...]]:
+    """Step -> full StationChecksum (6 values) of the station's own SimStation."""
+    return _dataset_series(log, STATION_CHECKSUM_DATASET, len(CHECKSUM_NAMES))
+
+
+def _summary(values: list[int]) -> dict | None:
+    if not values:
+        return None
+    return {"min": min(values), "max": max(values), "mean": sum(values) / len(values)}
+
+
+def stats(log: ReplayLog) -> dict:
+    """The match's pacing: StepFrequency and MaxRTT over the steps (min, max, mean, from
+    the rebuilt SimStationInfo; steps before a field was first sent are left out), and
+    ms per step from the header (m_uiLastSimClock / m_uiLastStep)."""
+    info = _dataset_series(log, STATION_INFO_DATASET, 3).values()
+    h = log.header
+    return {
+        "steps": len(log.steps),
+        "last_ssf": h["last_ssf"],
+        "ms_per_step": h["last_sim_clock_ms"] / h["last_step"] if h["last_step"] else None,
+        "step_frequency": _summary([v[0] for v in info if v[0] is not None]),
+        "max_rtt": _summary([v[1] for v in info if v[1] is not None]),
+    }
 
 
 def _hex(v: int | None) -> str:
@@ -229,6 +256,16 @@ def compare(a: ReplayLog, b: ReplayLog) -> int:
     return 1
 
 
+def print_stats(log: ReplayLog) -> None:
+    s = stats(log)
+    mps = "-" if s["ms_per_step"] is None else f"{s['ms_per_step']:.2f}"
+    print(f"last_ssf {s['last_ssf']}, {mps} ms per step over {s['steps']} steps")
+    for name, key, unit in (("StepFrequency", "step_frequency", ""), ("MaxRTT", "max_rtt", " ms")):
+        v = s[key]
+        print(f"{name} " + ("never sent" if v is None else
+                            f"min {v['min']} max {v['max']} mean {v['mean']:.2f}{unit}"))
+
+
 def dump(log: ReplayLog, lo: int, hi: int) -> None:
     print(describe(log))
     series = checksum_series(log)
@@ -249,11 +286,18 @@ def main(argv: list[str]) -> int:
     d = sub.add_parser("dump")
     d.add_argument("log", type=Path)
     d.add_argument("--ticks", default="1:20", help="first:last step, inclusive")
+    d.add_argument("--stats", action="store_true",
+                   help="print the pacing summary (StepFrequency, MaxRTT, ms per step) instead")
     c = sub.add_parser("compare")
     c.add_argument("a", type=Path)
     c.add_argument("b", type=Path)
     args = ap.parse_args(argv)
     try:
+        if args.cmd == "dump" and args.stats:
+            log = parse(args.log)
+            print(describe(log))
+            print_stats(log)
+            return 0
         if args.cmd == "dump":
             try:
                 lo, hi = (int(x) for x in args.ticks.split(":"))
