@@ -1,5 +1,6 @@
 #include <catch_amalgamated.hpp>
 
+#include <algorithm>
 #include <map>
 #include <sstream>
 #include <string>
@@ -146,4 +147,27 @@ TEST_CASE("only the exact switch asks for the schema export") {
   CHECK_FALSE(SchemaRequested({"wweallstars.exe"}));
   CHECK_FALSE(SchemaRequested({"wweallstars.exe", "--game_data_root=D:/x"}));
   CHECK_FALSE(SchemaRequested({"wweallstars.exe", "--print-settings-schema-now"}));
+}
+
+TEST_CASE("the Faster starts rows sit together on GAMEPLAY under their heading, off by default") {
+  const std::vector<Setting> settings = WithLifecycles(PlayerSettings());
+  const std::map<std::string, std::string> lines = SettingLines(SchemaJson(settings));
+  std::vector<std::string> rows;
+  size_t first = settings.size(), last = 0;
+  for (size_t i = 0; i < settings.size(); ++i) {
+    if (settings[i].heading != "Faster starts") continue;
+    rows.push_back(settings[i].name);
+    first = std::min(first, i);
+    last = i;
+  }
+  CHECK(rows == std::vector<std::string>{"wwe_short_loading_screens", "wwe_skip_startup_logos"});
+  CHECK(last - first + 1 == rows.size());
+  for (const std::string& name : rows) {
+    INFO(name);
+    CHECK(Has(lines.at(name), "\"tab\": \"GAMEPLAY\", \"type\": \"bool\", \"default\": \"false\", "
+                              "\"applies_at_startup\": true, \"native_only\": false, "
+                              "\"next_start\": true, \"heading\": \"Faster starts\""));
+  }
+  // Rows without a heading export no heading field.
+  CHECK_FALSE(Has(lines.at("wwe_unlock_everything"), "\"heading\""));
 }

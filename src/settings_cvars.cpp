@@ -48,6 +48,17 @@ REXCVAR_DEFINE_BOOL(wwe_unlock_everything, false, "WWEAllStars",
                     "Unlock every wrestler, arena, attire, Create a Superstar move, entrance "
                     "and Fantasy Warfare match; progress earned while it is on is still saved")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+// Asked when a Kismet delay or delayed link starts (faster_starts.cpp); read at the next start.
+REXCVAR_DEFINE_BOOL(wwe_short_loading_screens, false, "WWEAllStars",
+                    "Cut three fixed waits of the pre-match load (2.0 s before the intro movie, "
+                    "5.0 s and 3.0 s before the bell) to one tick (ignored in online matches)")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+// Read by the launcher, not the game: with it on, Play's Coalesced merge drops the THQ
+// and WWE movies from [VendorStartup] (faster-starts ticket 01).
+REXCVAR_DEFINE_BOOL(wwe_skip_startup_logos, false, "WWEAllStars",
+                    "Skip the THQ and WWE logo movies at boot (the launcher removes them from "
+                    "the startup movie list; the disclaimer stays)")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 // Asked on every pad request and every hit, so a change applies at once.
 REXCVAR_DEFINE_INT32(wwe_vibration_mode, 2, "WWEAllStars",
                      "Pad vibration: 0 = Off, 1 = Original (the Xbox 360's aerial hit pulse "

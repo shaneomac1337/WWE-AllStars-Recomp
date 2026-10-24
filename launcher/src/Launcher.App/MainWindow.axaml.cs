@@ -856,9 +856,10 @@ public partial class MainWindow : Window
     private async Task<PreparedMods> PrepareMods()
     {
         var online = OnlinePlayOn();
+        var skipLogos = SettingsFile.IsOn(_layout.SettingsFile, SettingsFile.SkipStartupLogosKey);
         var library = Mods;
         var updateFolder = _layout.UpdateDataDirectory;
-        var prepared = await Task.Run(() => library.PrepareForPlay(updateFolder, online));
+        var prepared = await Task.Run(() => library.PrepareForPlay(updateFolder, online, skipLogos));
         foreach (var line in prepared.Report.Lines()) App.Log.Write(line);
         ModsOnlineText.Text = ModOnlineRule.OffForOnlineLine(prepared.Report.LeftOut.Count);
         ModsOnlineText.IsVisible = prepared.Report.LeftOut.Count > 0;
@@ -1780,6 +1781,7 @@ public partial class MainWindow : Window
         _rows.Clear();
         SettingsList.Children.Clear();
         string? tab = null;
+        var subheading = "";
         foreach (var setting in _settings!.Schema.Startup)
         {
             if (setting.Tab != tab)
@@ -1792,6 +1794,18 @@ public partial class MainWindow : Window
                 };
                 heading.Classes.Add("kicker");
                 SettingsList.Children.Add(heading);
+                subheading = "";
+            }
+            // A run of rows sharing a sub-heading (Faster starts) gets it once, above its first row.
+            if (setting.Heading != subheading)
+            {
+                subheading = setting.Heading;
+                if (subheading.Length > 0)
+                    SettingsList.Children.Add(new TextBlock
+                    {
+                        Text = subheading, FontSize = 15, FontWeight = FontWeight.SemiBold,
+                        Foreground = this.FindResource("GoldBrush") as IBrush, Margin = new(0, 12, 0, 0),
+                    });
             }
             var choices = setting.IsText ? null : new ComboBox
             {

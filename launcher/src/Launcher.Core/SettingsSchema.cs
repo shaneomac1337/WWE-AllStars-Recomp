@@ -35,12 +35,16 @@ public sealed record SchemaPreset(string Value, string Label, IReadOnlyList<stri
 /// A text row's rule (<see cref="TextRules"/>): it has a typed value up to
 /// <paramref name="MaxLength"/> characters instead of choices. Empty for a choice row.
 /// </param>
+/// <param name="Heading">
+/// A sub-heading within the tab (<c>Faster starts</c>), shown above the first of the rows that
+/// share it; empty for most rows.
+/// </param>
 public sealed record SchemaSetting(
     string Key, string Label, string Tab, string Type, string Default,
     bool AppliesAtStartup, bool NativeOnly, bool NextStart,
     IReadOnlyList<SettingChoice> Choices, string Help, string RuntimeChoices = "",
     IReadOnlyList<string>? Members = null, IReadOnlyList<SchemaPreset>? Presets = null,
-    string Rule = "", int MaxLength = 0)
+    string Rule = "", int MaxLength = 0, string Heading = "")
 {
     public IReadOnlyList<string> Members { get; init; } = Members ?? [];
 
@@ -126,7 +130,8 @@ public sealed class SettingsSchema
                             [.. p.GetProperty("values").EnumerateArray().Select(v => v.GetString() ?? "")]))]
                         : null,
                     Optional(item, "kind") == "text" ? Text(item, "rule") : "",
-                    item.TryGetProperty("max_length", out var maxLength) ? maxLength.GetInt32() : 0));
+                    item.TryGetProperty("max_length", out var maxLength) ? maxLength.GetInt32() : 0,
+                    Optional(item, "heading") ?? ""));
             }
             return new SettingsSchema(settings);
         }

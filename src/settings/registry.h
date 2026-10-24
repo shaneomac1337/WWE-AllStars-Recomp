@@ -141,6 +141,24 @@ inline std::vector<Setting> PlayerSettings() {
        "Warfare match. Progress you earn while it is on is still saved; turn it off to see "
        "only what you have unlocked yourself.",
        /*startup=*/true},
+      // Faster starts (.scratch/faster-starts/spec.md): all off by default.
+      {.name = "wwe_short_loading_screens",
+       .label = "Shorter loading screens",
+       .tab = "GAMEPLAY",
+       .choices = {{"false", "Off"}, {"true", "On"}},
+       .help = "Cuts the fixed waits before a match where nothing is loading: about 10 seconds "
+               "less, and the tips screen passes too quickly to read. Ignored in online matches.",
+       .startup = true,
+       .heading = "Faster starts"},
+      // The launcher applies this one: its Coalesced merge drops the logo movies.
+      {.name = "wwe_skip_startup_logos",
+       .label = "Skip startup logos",
+       .tab = "GAMEPLAY",
+       .choices = {{"false", "Off"}, {"true", "On"}},
+       .help = "Skips the THQ and WWE logo movies when the game starts, so the menu comes "
+               "about 12 seconds sooner. The disclaimer still shows.",
+       .startup = true,
+       .heading = "Faster starts"},
       // The SDK's online client (patches/rexglue-online.patch) reads these when
       // the game first asks for Xbox LIVE, so a change applies at the next start.
       // The developer switches (forced relay, dropped direct traffic, the bind

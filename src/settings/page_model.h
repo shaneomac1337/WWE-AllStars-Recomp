@@ -85,6 +85,9 @@ struct Setting {
   // (typing in game is out of scope), the launcher edits it.
   TextRule text = TextRule::kNone;
   size_t max_length = 0;
+  // A sub-heading the launcher shows above the first row of a run of rows that
+  // share it, inside their tab ("Faster starts"); empty for most rows.
+  std::string heading;
 
   bool is_group() const { return !group.members.empty(); }
   bool is_text() const { return text != TextRule::kNone; }

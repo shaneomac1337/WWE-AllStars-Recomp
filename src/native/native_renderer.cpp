@@ -116,6 +116,7 @@ REXCVAR_DECLARE(int32_t, wwe_native_resolution_scale);
 REXCVAR_DECLARE(bool, wwe_60fps_entrances);
 REXCVAR_DECLARE(bool, wwe_120fps_matches);
 REXCVAR_DECLARE(bool, wwe_unlock_everything);
+REXCVAR_DECLARE(bool, wwe_short_loading_screens);
 REXCVAR_DECLARE(int32_t, wwe_native_color_mode);
 REXCVAR_DEFINE_STRING(wwe_shader_pack, "", "WWEAllStars",
                       "Native renderer: the shader pack to load (empty: wweallstars.shaderpack in "
@@ -1581,7 +1582,7 @@ struct Enhancement {
   const char* name;
   bool (*on)();
 };
-constexpr std::array<Enhancement, 6> kEnhancements = {{
+constexpr std::array<Enhancement, 7> kEnhancements = {{
     {"wwe_native_cas", [] { return g.device != nullptr && g_cas_applied; }},
     {"wwe_vibration_mode",
      [] { return wwe::vibration::CurrentMode() == wwe::vibration::Mode::kEnhanced; }},
@@ -1590,6 +1591,7 @@ constexpr std::array<Enhancement, 6> kEnhancements = {{
     {"wwe_60fps_entrances", [] { return REXCVAR_GET(wwe_60fps_entrances); }},
     {"wwe_120fps_matches", [] { return REXCVAR_GET(wwe_120fps_matches); }},
     {"wwe_unlock_everything", [] { return REXCVAR_GET(wwe_unlock_everything); }},
+    {"wwe_short_loading_screens", [] { return REXCVAR_GET(wwe_short_loading_screens); }},
 }};
 
 void OnExit() {

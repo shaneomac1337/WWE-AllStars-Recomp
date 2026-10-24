@@ -134,6 +134,13 @@ move, entrance and Fantasy Warfare match at once. Your save is never changed by 
 what you really earn while it is on is still saved, and turning it off (then
 restarting) brings back your own progress.
 
+### Faster starts
+
+Two options on the GAMEPLAY tab, both off by default. Shorter loading screens cuts the
+fixed waits before each match where nothing is loading, about 10 seconds, and does nothing
+in online matches. Skip startup logos drops the THQ and WWE movies at boot, so the menu
+comes about 12 seconds sooner. The disclaimer still shows.
+
 ### 120 fps matches (experimental)
 
 An option on the GRAPHICS tab runs offline matches at 120 fps, on a 120 Hz or faster

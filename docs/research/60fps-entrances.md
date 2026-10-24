@@ -167,10 +167,16 @@ Readers: the tick (`0x824178D0`), the console-only `0x82768130`, and
 ```
 824F03DC  cmpwi cr6,r28,5 ; bne ...          ; key 5
 824F03E8  lwz r11,-0x6aec(r11) ; beq ...     ; only while the half-rate flag is set
-824F0410  ori r11,r11,1 ; stw -0x4200(r10)   ; latch bit 0 of 0x8370BE00
+824F0410  ori r11,r11,1 ; stw -0x4200(r10)   ; bit 0 of 0x836FBE00: the FName is built (run once)
 824F0418  addi r4,r11,0x30f0                 ; L"SkipCinema" (0x820630F0)
-824F042C  bl 0x82752488
+824F042C  bl 0x82752488                      ; FName(0x836FBDF8, L"SkipCinema")
+824F0450  bl 0x824db1e0                      ; queue the named event SkipCinema
 ```
+
+Correction (faster-starts ticket 02, 2026-10-24): `0x836FBE00` (not `0x8370BE00`;
+`lis 0x8370` with `-0x4200`) is the run-once guard of the static FName at `0x836FBDF8`,
+not a skip latch. Every press queues the event through `0x824DB1E0`; the world tick drains
+the queue into the Kismet events that listen for it (`0x824DA880`).
 
 So the flag means "a skippable THQ cinematic is playing". **The feature must
 not clear `0x83709514`**, or the skip button would stop working during

@@ -58,9 +58,20 @@ python scripts/inspect_disc.py <iso> --extract-all assets
   `D:\Projects\WWE_ALLSTARS-RECOMP\ghidra`). `ghidra/` is gitignored.
   `ghidra/WWEAllStars` is the base v5 image at base addresses; use it only for
   base-to-TU2 work.
-- A Ghidra project opens in one process at a time, read-only included: a
-  `ghidra/<project>.lock` held by another session's MCP gives `LockException`.
-  Then read through `disasm.py`, or ask the owner to close that session.
+- Ghidra is the first tool for every RE question; `disasm.py` only supplements it
+  (VMX128 packs). A Ghidra project opens in one process at a time, so every session
+  uses one shared server: the user-scope `ghidra` MCP is
+  `D:\tools\ghidra-mcp\ghidra_mcp_bridge.py`, a stdio bridge to one long-lived
+  `ghidra-headless-mcp --transport tcp` on `127.0.0.1:8765`, started on first use. It
+  opens each project once and gives each session its own program session on it
+  (the installed `.venv\Lib\site-packages\ghidra_headless_mcp\backend.py` carries a
+  local patch that serialises project open and close, `backend.py.orig` beside it is
+  the original; reapply it after reinstalling the server). Stop it with `D:\tools\ghidra-mcp\stop-shared-ghidra.ps1`.
+- A `LockException` means some process other than the shared server holds the
+  project: an old per-session `ghidra-headless-mcp.exe` (started before the bridge),
+  or the Ghidra GUI. It is a blocker, never a reason to fall back to `disasm.py`.
+  Find the holder (the `python.exe` child of a `ghidra-headless-mcp.exe` with a few
+  hundred MB) and ask the owner before stopping it or its session.
 - Xenon360 leaves the VMX128 pack instructions (`vpk*128`) undecoded; a
   decompile with a hole there gets read through `disasm.py`, which decodes them.
 - Headless Ghidra (`support/analyzeHeadless.bat`) needs `GHIDRA_HEADLESS_MAXMEM=10G`;

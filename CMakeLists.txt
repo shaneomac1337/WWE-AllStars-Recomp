@@ -41,6 +41,7 @@ set(WWEALLSTARS_SOURCES
     src/online/step_rate_hooks.cpp
     src/online/net_wake_hooks.cpp
     src/unlock_everything.cpp
+    src/faster_starts.cpp
     src/script_input.cpp
     src/vibration/enhanced_hooks.cpp
     src/vibration/mode.cpp

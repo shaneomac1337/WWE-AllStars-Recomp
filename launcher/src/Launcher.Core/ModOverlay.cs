@@ -22,8 +22,13 @@ public sealed partial class ModLibrary
     /// any <c>.xxx</c> there is live (modding research §2.3). The TU2 folder is never written.
     /// </summary>
     /// <param name="online">The player's <c>wwe_online</c> setting.</param>
+    /// <param name="skipStartupLogos">
+    /// The player's <c>wwe_skip_startup_logos</c> setting: the update folder is built with
+    /// <see cref="LauncherConfigEdit.SkipStartupLogos"/> applied after the mods, online or not (it
+    /// changes only the boot).
+    /// </param>
     /// <exception cref="LauncherException">The update folder could not be built.</exception>
-    public PreparedMods PrepareForPlay(string titleUpdateFolder, bool online)
+    public PreparedMods PrepareForPlay(string titleUpdateFolder, bool online, bool skipStartupLogos = false)
     {
         lock (_lock)
         {
@@ -58,15 +63,16 @@ public sealed partial class ModLibrary
             }
 
             var overlayMods = inUse.Where(mod => mod.OverlayPackages.Any() || mod.Config.Count > 0).ToList();
+            List<LauncherConfigEdit> launcherEdits = skipStartupLogos ? [LauncherConfigEdit.SkipStartupLogos] : [];
             var updateRoot = titleUpdateFolder;
             ConfigMerge? config = null;
-            if (overlayMods.Count > 0)
+            if (overlayMods.Count > 0 || launcherEdits.Count > 0)
             {
                 try
                 {
-                    config = MergeConfig(titleUpdateFolder, overlayMods);
+                    config = MergeConfig(titleUpdateFolder, overlayMods, launcherEdits);
                     var tu2Files = Directory.EnumerateFiles(titleUpdateFolder).Order(StringComparer.OrdinalIgnoreCase).ToList();
-                    var stamp = Stamp(titleUpdateFolder, tu2Files, overlayMods);
+                    var stamp = Stamp(titleUpdateFolder, tu2Files, overlayMods, launcherEdits);
                     if (!Directory.Exists(OverlayDirectory) || !File.Exists(StampPath) || File.ReadAllText(StampPath) != stamp)
                         Build(titleUpdateFolder, tu2Files, [.. winners.Values], config.Bundles, stamp);
                     updateRoot = OverlayDirectory;
@@ -94,8 +100,9 @@ public sealed partial class ModLibrary
         }
     }
 
-    /// <summary>What the update folder is built from: TU2's files and the mods in use, in order, by size and time.</summary>
-    private static string Stamp(string titleUpdateFolder, List<string> tu2Files, List<ModInfo> inUse)
+    /// <summary>What the update folder is built from: TU2's files, the mods in use, in order, by size and time, and the launcher's edits.</summary>
+    private static string Stamp(string titleUpdateFolder, List<string> tu2Files, List<ModInfo> inUse,
+        List<LauncherConfigEdit> launcherEdits)
     {
         var stamp = new StringBuilder("mod-update 1\n").Append("tu2 ").Append(Path.GetFullPath(titleUpdateFolder)).Append('\n');
         void Add(string label, string path)
@@ -111,6 +118,7 @@ public sealed partial class ModLibrary
             foreach (var package in mod.OverlayPackages) Add("package", package.Path);
             foreach (var file in mod.Config) Add($"config {file.Bundle}", file.Path);
         }
+        foreach (var edit in launcherEdits) stamp.Append("launcher ").Append(edit.Name).Append('\n');
         return stamp.ToString();
     }
 

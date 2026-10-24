@@ -39,7 +39,7 @@ TEST_CASE("the page shows the spec's settings on six tabs") {
                      "wwe_native_resolution_scale", "wwe_native_anisotropy",
                      "wwe_native_color_mode", "wwe_60fps_entrances", "wwe_120fps_matches",
                      "audio_mute",
-                     "wwe_vibration_mode", "wwe_vibration_strength", "wwe_unlock_everything", "vulkan_device",
+                     "wwe_vibration_mode", "wwe_vibration_strength", "wwe_unlock_everything", "wwe_short_loading_screens", "wwe_skip_startup_logos", "vulkan_device",
                      "user_language", "graphics_preset", "wwe_online", "wwe_online_name", "wwe_online_server",
                      "wwe_online_upnp"});
 }

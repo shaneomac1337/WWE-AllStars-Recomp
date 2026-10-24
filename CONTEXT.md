@@ -124,6 +124,16 @@ _Avoid_: stutter, lag spike, freeze
 Uneven motion on screen while frames are still sent at an even pace, so a frame-time graph stays flat. It comes from when or which frames reach the display.
 _Avoid_: stutter, microstutter, frame pacing issue
 
+### Loading
+
+**Pre-match load**:
+The wait from confirming the wrestlers and arena to the match starting. It is the load the player sits through most often, and the one load-time work is judged on.
+_Avoid_: loading time (unqualified), match load, load screen
+
+**Skippable**:
+Something the game shows that adds wait without being loading work, such as a logo, intro movie or loading-screen minimum time. Skipping one is the player's choice, never the default.
+_Avoid_: padding, fake load
+
 ### Vibration
 
 **Hit pulse**:

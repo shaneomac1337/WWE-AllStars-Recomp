@@ -124,7 +124,8 @@ void PrintSchemaAndExitIfAsked();
 // Graphics preset) names no cvar: its type is empty, its default is the preset
 // the members' defaults match, and it adds the optional "members" and
 // "presets" fields. A text row (format 2) adds "kind": "text", its
-// "max_length" and its "rule" (settings/text_rules.h), with no choices.
+// "max_length" and its "rule" (settings/text_rules.h), with no choices. A row
+// with a sub-heading adds the optional "heading" field.
 inline std::string SchemaJson(const std::vector<Setting>& settings) {
   using namespace schema_detail;
   std::string out = "{\n  \"format\": " + std::to_string(kSchemaFormat) + ",\n  \"settings\": [\n";
@@ -140,6 +141,7 @@ inline std::string SchemaJson(const std::vector<Setting>& settings) {
     out += std::string(", \"applies_at_startup\": ") + Bool(setting.startup);
     out += std::string(", \"native_only\": ") + Bool(setting.native_only);
     out += std::string(", \"next_start\": ") + Bool(setting.restart);
+    if (!setting.heading.empty()) out += ", \"heading\": " + JsonString(setting.heading);
     if (setting.is_text()) {
       out += ", \"kind\": \"text\", \"max_length\": " + std::to_string(setting.max_length);
       out += ", \"rule\": " + JsonString(TextRuleName(setting.text));

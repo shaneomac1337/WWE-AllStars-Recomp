@@ -18,6 +18,17 @@ public sealed record ModConfigFile(string Bundle, string Ini, string Path)
 /// <summary>What one mod's config file did at Play, for the load report.</summary>
 public sealed record ConfigEdit(string ModName, string Bundle, string Ini, string Outcome);
 
+/// <summary>
+/// An edit the launcher itself makes to inner ini <see cref="Ini"/> of bundle <see cref="Bundle"/> at
+/// Play, in a mod's edit syntax, after every mod's (Faster starts: the startup logos).
+/// </summary>
+public sealed record LauncherConfigEdit(string Name, string Bundle, string Ini, string Text)
+{
+    /// <summary>Skip startup logos: the THQ and WWE movies out of the startup list; the disclaimer stays.</summary>
+    public static readonly LauncherConfigEdit SkipStartupLogos = new("Skip startup logos", ModLibrary.ConfigBundle,
+        "Xe-Game.ini", "[VendorStartup]\n-Movies=../Game/Movies/THQ.bik\n-Movies=../Game/Movies/WWE.bik\n");
+}
+
 /// <summary>Two or more mods in use replacing the same whole inner ini; the last in the load order wins.</summary>
 public sealed record ConfigConflict(string Bundle, string Ini, IReadOnlyList<string> Mods, string Winner);
 
@@ -74,32 +85,32 @@ public sealed partial class ModLibrary
         HashSet<ModConfigFile> Applied);
 
     /// <summary>
-    /// TU2's bundles with the config files of the mods in use applied in load order. A whole
-    /// inner ini replaces the one before it; two mods doing that to the same ini is a conflict.
-    /// Only bundles a mod edits are rebuilt.
+    /// TU2's bundles with the config files of the mods in use applied in load order, then the
+    /// launcher's own edits. A whole inner ini replaces the one before it; two mods doing that to
+    /// the same ini is a conflict. Only bundles a mod or the launcher edits are rebuilt.
     /// </summary>
     /// <exception cref="LauncherException">A TU2 bundle is damaged.</exception>
-    private static ConfigMerge MergeConfig(string titleUpdateFolder, List<ModInfo> inUse)
+    private static ConfigMerge MergeConfig(string titleUpdateFolder, List<ModInfo> inUse,
+        IReadOnlyList<LauncherConfigEdit> launcherEdits)
     {
         var merge = new ConfigMerge(new(StringComparer.OrdinalIgnoreCase), [], [], []);
         var bundles = new Dictionary<string, CoalescedBundle?>(StringComparer.OrdinalIgnoreCase);
         var replacers = new Dictionary<(string, string), List<(ModInfo Mod, ModConfigFile File)>>();
+        // The inner ini an edit goes to, or null with the reason reported.
+        CoalescedIni? Target(string bundleName, string iniName, Action<string> report)
+        {
+            if (!bundles.TryGetValue(bundleName, out var bundle))
+                bundles[bundleName] = bundle = ReadBundle(Path.Combine(titleUpdateFolder, bundleName));
+            if (bundle == null) report("left out, Title Update 2's folder has no such bundle");
+            else if (bundle.Find(iniName) is { } found) return found;
+            else report("left out, the bundle has no such ini");
+            return null;
+        }
         foreach (var mod in inUse)
             foreach (var file in mod.Config)
             {
-                if (!bundles.TryGetValue(file.Bundle, out var bundle))
-                    bundles[file.Bundle] = bundle = ReadBundle(Path.Combine(titleUpdateFolder, file.Bundle));
                 void Report(string outcome) => merge.Edits.Add(new ConfigEdit(mod.Manifest!.Name, file.Bundle, file.Ini, outcome));
-                if (bundle == null)
-                {
-                    Report("left out, Title Update 2's folder has no such bundle");
-                    continue;
-                }
-                if (bundle.Find(file.Ini) is not { } ini)
-                {
-                    Report("left out, the bundle has no such ini");
-                    continue;
-                }
+                if (Target(file.Bundle, file.Ini, Report) is not { } ini) continue;
                 var text = File.ReadAllText(file.Path);
                 if (IniMerge.IsComplete(ini.Body, text))
                 {
@@ -118,6 +129,14 @@ public sealed partial class ModLibrary
                 merge.Applied.Add(file);
                 merge.Bundles[file.Bundle] = [];
             }
+        foreach (var edit in launcherEdits)
+        {
+            void Report(string outcome) => merge.Edits.Add(new ConfigEdit($"launcher ({edit.Name})", edit.Bundle, edit.Ini, outcome));
+            if (Target(edit.Bundle, edit.Ini, Report) is not { } ini) continue;
+            ini.Body = IniMerge.Apply(ini.Body, edit.Text, out var count);
+            Report(count == 1 ? "1 edit" : $"{count} edits");
+            merge.Bundles[edit.Bundle] = [];
+        }
         foreach (var name in merge.Bundles.Keys.ToList()) merge.Bundles[name] = bundles[name]!.ToBytes();
         foreach (var ((_, _), replaced) in replacers)
             if (replaced.Count > 1)

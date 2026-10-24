@@ -178,11 +178,17 @@ public sealed class SettingsFile(string path, SettingsSchema schema)
     public const string OnlineKey = "wwe_online";
 
     /// <summary>The player's Online play setting in the file at <paramref name="path"/>; off when it can't be read.</summary>
-    public static bool OnlinePlayOn(string path)
+    public static bool OnlinePlayOn(string path) => IsOn(path, OnlineKey);
+
+    /// <summary>Skip startup logos, which the launcher applies at Play (<see cref="LauncherConfigEdit.SkipStartupLogos"/>).</summary>
+    public const string SkipStartupLogosKey = "wwe_skip_startup_logos";
+
+    /// <summary>The player's on/off setting <paramref name="key"/> in the file at <paramref name="path"/>; off when it can't be read.</summary>
+    public static bool IsOn(string path, string key)
     {
         try
         {
-            return new SettingsFile(path, SettingsSchema.Committed()).Read().GetValueOrDefault(OnlineKey) == "true";
+            return new SettingsFile(path, SettingsSchema.Committed()).Read().GetValueOrDefault(key) == "true";
         }
         catch (LauncherException)
         {

@@ -338,7 +338,8 @@ public static class HeadlessCommands
     {
         var layout = options.Layout;
         var library = options.NewModLibrary();
-        var prepared = library.PrepareForPlay(layout.UpdateDataDirectory, SettingsFile.OnlinePlayOn(layout.SettingsFile));
+        var prepared = library.PrepareForPlay(layout.UpdateDataDirectory, SettingsFile.OnlinePlayOn(layout.SettingsFile),
+            SettingsFile.IsOn(layout.SettingsFile, SettingsFile.SkipStartupLogosKey));
         PipelineResult result;
         try
         {

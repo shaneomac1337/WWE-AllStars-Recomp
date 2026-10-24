@@ -13,6 +13,7 @@ public sealed class SettingsSchemaTests
         Assert.Equal(
             ["fullscreen", "vulkan_device", "user_language", "graphics_preset", "wwe_native_renderer",
              "wwe_native_resolution_scale", "wwe_native_anisotropy", "wwe_native_color_mode", "wwe_60fps_entrances", "wwe_120fps_matches", "wwe_unlock_everything",
+             "wwe_short_loading_screens", "wwe_skip_startup_logos",
              "wwe_online",
              "wwe_online_name",
              "wwe_online_server", "wwe_online_upnp"],
@@ -36,6 +37,26 @@ public sealed class SettingsSchemaTests
         foreach (var key in new[] { "present_vsync", "vblank_follows_display", "wwe_native_cas", "audio_mute",
                      "wwe_vibration_mode" })
             Assert.False(Assert.IsType<SchemaSetting>(schema.Find(key)).AppliesAtStartup);
+    }
+
+    [Fact]
+    public void The_faster_starts_settings_sit_together_on_GAMEPLAY_under_their_heading_and_are_off()
+    {
+        var schema = SettingsSchema.Committed();
+
+        var rows = schema.Startup.Where(s => s.Heading == "Faster starts").ToList();
+        Assert.Equal(["wwe_short_loading_screens", "wwe_skip_startup_logos"], rows.Select(s => s.Key));
+        var first = schema.Startup.ToList().IndexOf(rows[0]);
+        Assert.Equal(rows, schema.Startup.Skip(first).Take(rows.Count));
+        Assert.All(rows, row =>
+        {
+            Assert.Equal(("GAMEPLAY", "bool", "false"), (row.Tab, row.Type, row.Default));
+            Assert.Equal(["Off", "On"], row.Choices.Select(c => c.Label));
+        });
+        Assert.Contains("disclaimer still shows", schema.Find("wwe_skip_startup_logos")!.Help);
+        // The wait cuts say they do nothing online; the boot-only logo skip works online too.
+        Assert.EndsWith("Ignored in online matches.", schema.Find("wwe_short_loading_screens")!.Help);
+        Assert.Equal("", schema.Find("wwe_unlock_everything")!.Heading);
     }
 
     [Fact]
