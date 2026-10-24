@@ -9,10 +9,6 @@ REXCVAR_DEFINE_BOOL(wwe_native_renderer, true, "WWEAllStars",
                     "Draw with the native Vulkan renderer instead of the Emulated renderer "
                     "(Xenos GPU emulation)")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
-REXCVAR_DEFINE_BOOL(wwe_native_supersample, true, "WWEAllStars",
-                    "Enhancement: 2x2 supersampling of screen-sized render targets, filtered "
-                    "down to 1280x720 (not combined with wwe_native_resolution_scale)")
-    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 // Read when Native starts: the mode picks texture views, a shader spec bit
 // and the pipelines the prebuild plan builds (native/texture_formats.h).
 REXCVAR_DEFINE_INT32(wwe_native_color_mode, 0, "WWEAllStars",
@@ -26,10 +22,11 @@ REXCVAR_DEFINE_DOUBLE(wwe_native_cas, 0.5, "WWEAllStars",
                       "Enhancement: CAS sharpening strength in [0, 1] applied to Native's "
                       "output through the presenter; 0 = off")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
-REXCVAR_DEFINE_INT32(wwe_native_resolution_scale, 1, "WWEAllStars",
-                     "Native renderer: render at this multiple of the game's resolution (1-3), "
-                     "then let the presenter fit the frame to the window")
-    .range(1, 3)
+REXCVAR_DEFINE_INT32(wwe_native_resolution_scale, 2, "WWEAllStars",
+                     "Native renderer: render at this multiple of the game's 720p (1-4); a "
+                     "frame larger than the window is filtered down to it, a smaller one is "
+                     "scaled up by the presenter")
+    .range(1, 4)
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 // Read at each frame's start; part of the sampler cache key, so a change gets
 // new samplers from the next frame (native/sampler_choice.h).

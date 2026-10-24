@@ -16,7 +16,9 @@ namespace wwe::native::textures {
 // scale: the native resolution scale; resolve targets are that much larger
 // than their guest textures.
 // colour: how gamma fetches are decoded (texture_formats.h, GammaFetch).
-bool Initialize(uint32_t scale, ColourMode colour);
+// lod_bias: the render resolution's texture LOD bias (guest::PlanOutput);
+// --wwe_native_lod_bias, when set, replaces it.
+bool Initialize(uint32_t scale, ColourMode colour, float lod_bias);
 
 // A texture fetch constant as the guest stores it (six big-endian dwords).
 struct FetchConstant {

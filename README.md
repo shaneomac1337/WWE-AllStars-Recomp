@@ -63,12 +63,42 @@ Native adds image options the console never had:
 
 | Setting | Choices |
 | --- | --- |
-| Supersampling | Renders 2x2 and filters down; this is the anti-aliasing. On by default |
-| Render resolution | 720p, 1440p or 2160p |
+| Render resolution | 720p, 1440p, 2160p or 2880p, fitted to your window: above the window's size the picture is filtered down to it, which smooths jagged edges; below it, it is scaled up and sharpened. 1440p by default |
 | Sharpening (AMD FidelityFX CAS) | Off, Low, Medium or High |
 | Texture filtering | Anisotropic, up to 16x |
 | Colour | Original, the Xbox 360's gamma curve as in Xenia, or Natural (sRGB), with more detail in dark areas |
-| Graphics preset | Low, Medium or High. On first start the game suggests one for your GPU: Low for a Steam Deck or an integrated GPU, Medium for a small discrete GPU, High otherwise |
+| Graphics preset | Low, Medium, High or Ultra (2160p, 16x texture filtering, Sharpening Low). On first start the game suggests one for your GPU: Low for a Steam Deck or an integrated GPU, Medium for a small discrete GPU, High otherwise |
+
+#### Next to the Xbox 360
+
+<table>
+  <tr>
+    <th width="50%">Xbox 360 (720p)</th>
+    <th width="50%">PC, highest settings</th>
+  </tr>
+  <tr>
+    <td><img src="docs/images/compare-entrance-xbox360-zoom.png" alt="John Cena's entrance on the Xbox 360, zoomed in: stair-stepped edges on his cap, face and shirt print"></td>
+    <td><img src="docs/images/compare-entrance-pc-zoom.png" alt="The same frame on PC, zoomed in: smooth edges and a sharp shirt print"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/compare-entrance-xbox360.jpg" alt="John Cena on the entrance stage, Xbox 360"></td>
+    <td><img src="docs/images/compare-entrance-pc.jpg" alt="John Cena on the entrance stage, PC"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/compare-match-xbox360-zoom.png" alt="Hulk Hogan in the ring on the Xbox 360, zoomed in: jagged edges on his hair, face and shoulders"></td>
+    <td><img src="docs/images/compare-match-pc-zoom.png" alt="The same frame on PC, zoomed in: clean edges on his hair, face and shoulders"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/compare-match-xbox360.jpg" alt="Hulk Hogan and John Cena at the start of a match, Xbox 360"></td>
+    <td><img src="docs/images/compare-match-pc.jpg" alt="Hulk Hogan and John Cena at the start of a match, PC"></td>
+  </tr>
+</table>
+
+<sub>The same frames of one exhibition match, entrance and bell, nobody touching a controller. Xbox 360: the console's
+1280x720 picture from the Emulated renderer, which reproduces the console's GPU, scaled to
+1440p the way a 1440p screen shows it. PC: release 1.6.0 with Render resolution 2880p
+filtered down to a 2560x1440 window, 16x texture filtering and Sharpening Low. In each pair
+the upper image is a detail of the lower one at 200 %, each pixel shown as a 2x2 block.</sub>
 
 ### Shaders built before you play
 
@@ -152,10 +182,10 @@ explains the format, and [`docs/example-mod`](docs/example-mod) is a commented e
   </tr>
 </table>
 
-The launcher verifies your disc image and update, copies the game files, prepares shaders
-and pipelines. It also repairs a damaged install, opens the
-newest log for a bug report, makes desktop and Start menu shortcuts, picks the GPU, and
-tells you when a new release is out (it only checks, it never downloads).
+The launcher verifies your disc image and update, copies the game files and prepares
+shaders and pipelines. It also repairs a damaged install, opens the newest log for a bug
+report, makes desktop and Start menu shortcuts, picks the GPU and tells you when a new
+release is out (it only checks, it never downloads).
 
 Also: Alt+Enter switches between window and fullscreen, and F12 saves a screenshot next to
 the session log.
@@ -191,7 +221,9 @@ Steps:
 starts with `TU_` in the console's `Cache` folder. The launcher also takes a folder with it
 inside (a whole USB `Content` folder works) or a zip, 7z or rar.
 
-**Updating:** your saves are in `userdata`. Copy that folder into the new version's folder.
+**Updating:** extract the new zip over your folder; your settings, saves, mods and game
+files stay where they are. To keep the old version, extract to a new folder instead and
+copy `userdata` (your settings and saves) into it.
 
 ### Starting without the launcher
 
@@ -221,7 +253,7 @@ your Windows user name; check it before posting. The launcher keeps the last 10 
 | What you see | What to do |
 | --- | --- |
 | Motion isn't quite even | Turn on variable refresh (FreeSync or G-Sync) if your display has it, or use a refresh rate that is a multiple of 60 (60, 120, 240 Hz). On a 144 or 165 Hz display without variable refresh, frames alternate between 2 and 3 refreshes |
-| Slow on a weak GPU | Pick the Low preset under GRAPHICS. Supersampling is the costly setting |
+| Slow on a weak GPU | Pick the Low preset under GRAPHICS. Render resolution is the costly setting |
 | The game started on Emulated | The launcher says why; Prepare shaders fixes the usual cause |
 | The launcher says the GPU stopped working on Native | Your GPU or driver failed under the Native renderer. Choose **SWITCH TO EMULATED** to play on the Emulated renderer, and update your graphics driver. Please attach the [crash report](#crash-reports) to a bug report too |
 | The launcher freezes, for example when you pick a file | Start it with `WWEAllStarsLauncher.exe --reduce-effects`, or turn on Settings > LAUNCHER > Reduce effects; it turns off the window's see-through backdrop and animations. Each step is written to `logs\launcher.log`; attach it to a bug report |
@@ -256,11 +288,19 @@ Yes on the Steam Deck: add the launcher to Steam as a non-Steam game and run it 
 Proton on SteamOS. It plays at 60 fps on the Low preset, which the game picks on a Deck by
 itself. Desktop Linux hasn't been tested yet.
 
+**Can I use ReShade?**
+You can, at your own risk; the port doesn't ship or support it. ReShade works on the final
+picture, so it also filters the in-game settings page, the achievement pop-ups and the
+game's menus. It is unlikely to find the game's depth, so depth effects (ambient occlusion,
+depth of field) may do nothing, and it may switch depth off by itself in online play. If
+the game crashes or the GPU stops working with ReShade on, try without it before you report
+it: the crash report can't tell its failures apart from the port's.
+
 **Was AI used?**
 Yes, a lot. I'm a software engineer, and most of the code and the docs were written with
 Claude Code, an AI coding agent. I steered the work, played and tested every change, and
-decided what ships. The measurements, investigations
-and decisions are written down in [`docs/`](docs), so anyone can check them.
+decided what ships. The measurements, investigations and decisions are written down in
+[`docs/`](docs), so anyone can check them.
 
 ## Build from source
 

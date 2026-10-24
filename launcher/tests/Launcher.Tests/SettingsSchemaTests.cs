@@ -12,7 +12,6 @@ public sealed class SettingsSchemaTests
         // The spec's startup settings ("Settings"), with the GPU and the language.
         Assert.Equal(
             ["fullscreen", "vulkan_device", "user_language", "graphics_preset", "wwe_native_renderer",
-             "wwe_native_supersample",
              "wwe_native_resolution_scale", "wwe_native_anisotropy", "wwe_native_color_mode", "wwe_60fps_entrances", "wwe_120fps_matches", "wwe_unlock_everything",
              "wwe_online",
              "wwe_online_name",

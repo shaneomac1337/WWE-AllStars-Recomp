@@ -61,7 +61,7 @@ protected your PC" the first time you start the launcher. Choose
 SETTINGS
 --------
 The launcher's Settings screen holds the options that apply when the game
-starts: graphics preset, renderer, render resolution, supersampling,
+starts: graphics preset, renderer, render resolution,
 texture filtering, colour, display mode, graphics card, language and online
 play. Everything else
 (VSync, sharpening, vibration, sound) is on the in-game PC SETTINGS page

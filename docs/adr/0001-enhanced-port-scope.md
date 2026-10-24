@@ -1,6 +1,6 @@
 # ADR-0001: Scope: enhanced port
 
-Status: accepted (2026-10-02)
+Status: accepted (2026-10-02); the texture-pack part is superseded by ADR-0028
 
 ## Context
 

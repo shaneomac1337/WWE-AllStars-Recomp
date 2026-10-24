@@ -1,0 +1,26 @@
+diff --git a/src/kernel/xam/xam_ui.cpp b/src/kernel/xam/xam_ui.cpp
+index 5a572ce..80c64d3 100644
+--- a/src/kernel/xam/xam_ui.cpp
++++ b/src/kernel/xam/xam_ui.cpp
+@@ -19,6 +19,9 @@
+ 
+ REXCVAR_DEFINE_BOOL(headless, false, "Kernel",
+                     "Don't display any UI, using defaults for prompts as needed");
++REXCVAR_DEFINE_STRING(headless_keyboard_text, "", "Kernel",
++                      "With headless: the text a keyboard prompt without default text "
++                      "answers (automated runs that must name something)");
+ #include <rex/kernel/xam/private.h>
+ #include <rex/hook.h>
+ #include <rex/types.h>
+@@ -437,7 +440,10 @@ u32 XamShowKeyboardUI_entry(u32 user_index, u32 flags, mapped_wstring default_te
+   if (REXCVAR_GET(headless)) {
+     auto run = [default_text, buffer, buffer_length, buffer_size]() -> X_RESULT {
+       // Redirect default_text back into the buffer.
+-      if (!default_text) {
++      const std::string answer = REXCVAR_GET(headless_keyboard_text);
++      if ((!default_text || default_text.value().empty()) && !answer.empty()) {
++        rex::string::copy_and_swap_truncating(buffer, rex::string::to_utf16(answer), buffer_length);
++      } else if (!default_text) {
+         std::memset(buffer, 0, buffer_size);
+       } else {
+         rex::string::copy_and_swap_truncating(buffer, default_text.value(), buffer_length);

@@ -15,7 +15,8 @@ $patches = @('rexglue-window-restore.patch', 'rexglue-async-pipelines.patch', 'r
     'rexglue-smooth-presentation.patch', 'rexglue-in-game-settings.patch', 'rexglue-vibration.patch',
     'rexglue-device-extensions.patch', 'rexglue-present-wait.patch', 'rexglue-live-sharpening.patch',
     'rexglue-online.patch', 'rexglue-live-vsync.patch', 'rexglue-live-vblank.patch', 'rexglue-tu2-update.patch', 'rexglue-content.patch', 'rexglue-overlay-pacing.patch', 'rexglue-fullscreen-toggle.patch',
-    'rexglue-guest-vblank-rate.patch', 'rexglue-gpu-loss-handler.patch', 'rexglue-net-waits.patch')
+    'rexglue-guest-vblank-rate.patch', 'rexglue-gpu-loss-handler.patch', 'rexglue-net-waits.patch',
+    'rexglue-headless-keyboard.patch')
 $hashes = foreach ($name in $patches) { "$name $((Get-FileHash "$projectRoot/patches/$name" -Algorithm SHA256).Hash)" }
 $expected = $hashes -join "`n"
 $stamp = "$source/.wwe-patches"

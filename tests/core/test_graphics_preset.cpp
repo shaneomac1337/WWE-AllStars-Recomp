@@ -84,25 +84,24 @@ TEST_CASE("the registry's presets match the spec's table") {
   const Setting& row = Find(settings, "graphics_preset");
   CHECK(row.tab == "GRAPHICS");
   CHECK(row.label == "Graphics preset");
-  CHECK(row.group.members == std::vector<std::string>{"wwe_native_supersample",
-                                                      "wwe_native_resolution_scale",
+  CHECK(row.group.members == std::vector<std::string>{"wwe_native_resolution_scale",
                                                       "wwe_native_cas", "wwe_native_anisotropy"});
   using Values = std::map<std::string, std::string>;
-  CHECK(PresetValues(row, "low") == Values{{"wwe_native_supersample", "false"},
-                                           {"wwe_native_resolution_scale", "1"},
+  CHECK(PresetValues(row, "low") == Values{{"wwe_native_resolution_scale", "1"},
                                            {"wwe_native_cas", "0"},
                                            {"wwe_native_anisotropy", "2"}});
-  CHECK(PresetValues(row, "medium") == Values{{"wwe_native_supersample", "false"},
-                                              {"wwe_native_resolution_scale", "1"},
+  CHECK(PresetValues(row, "medium") == Values{{"wwe_native_resolution_scale", "1"},
                                               {"wwe_native_cas", "0.5"},
                                               {"wwe_native_anisotropy", "3"}});
-  CHECK(PresetValues(row, "high") == Values{{"wwe_native_supersample", "true"},
-                                            {"wwe_native_resolution_scale", "1"},
+  CHECK(PresetValues(row, "high") == Values{{"wwe_native_resolution_scale", "2"},
                                             {"wwe_native_cas", "0.5"},
                                             {"wwe_native_anisotropy", "3"}});
+  CHECK(PresetValues(row, "ultra") == Values{{"wwe_native_resolution_scale", "3"},
+                                             {"wwe_native_cas", "0.25"},
+                                             {"wwe_native_anisotropy", "5"}});
   std::vector<std::string> labels;
   for (const auto& choice : row.choices) labels.push_back(choice.label);
-  CHECK(labels == std::vector<std::string>{"Low", "Medium", "High", "Custom"});
+  CHECK(labels == std::vector<std::string>{"Low", "Medium", "High", "Ultra", "Custom"});
 }
 
 TEST_CASE("High is the cvar defaults, so a player who never picks a preset keeps today's picture") {
@@ -144,10 +143,12 @@ TEST_CASE("the help line says what each preset turns on and off") {
   const std::vector<Setting> settings = wwe::settings::PlayerSettings();
   const Setting& row = Find(settings, "graphics_preset");
   INFO(row.help);
-  CHECK(row.help.find("Low: Supersampling Off, Sharpening Off, Texture filtering 2x.") !=
+  CHECK(row.help.find("Low: Render resolution 720p, Sharpening Off, Texture filtering 2x.") !=
         std::string::npos);
   CHECK(row.help.find("Medium: Sharpening Medium, Texture filtering 4x.") != std::string::npos);
-  CHECK(row.help.find("High: Supersampling On.") != std::string::npos);
+  CHECK(row.help.find("High: Render resolution 1440p.") != std::string::npos);
+  CHECK(row.help.find("Ultra: Render resolution 2160p, Sharpening Low, Texture filtering 16x.") !=
+        std::string::npos);
 }
 
 TEST_CASE("the row shows the preset whose values all match, else Custom") {

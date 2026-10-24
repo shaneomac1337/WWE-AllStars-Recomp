@@ -555,16 +555,60 @@ inline uint32_t QuadListIndices(uint32_t vertex_count, uint32_t* out) {
   return o;
 }
 
-// Host scale of a render target (image-quality ticket 02). Supersampling (2x2,
-// an Enhancement, on by default) doubles screen-sized targets only, so effect targets
-// that assume their size keep it; the presented frame is filtered back down to
-// 1280x720. It is not combined with the resolution scale, which wins when set.
-constexpr uint32_t TargetScale(uint32_t guest_width, uint32_t guest_height,
-                               uint32_t resolution_scale, bool supersample) {
-  if (resolution_scale > 1 || !supersample) {
-    return resolution_scale;
+// What Native does with its frame for a window (graphics-remaster ticket 01).
+// Every target draws at the Render resolution's multiple of the guest's 720p.
+// A frame taller than the window's 16:9 area is filtered down to that area
+// (supersampling at the display's resolution); otherwise it goes to the
+// presenter, which scales it up and sharpens it.
+enum class DownsampleFilter : uint8_t {
+  kNone,
+  kBox,       // power-of-two ratio: 2:1 steps only
+  kBilinear,  // 2:1 steps while the ratio is 2 or more, then one bilinear step
+};
+struct OutputPlan {
+  uint32_t target_scale = 1;
+  // The image Native publishes.
+  uint32_t output_width = 1280;
+  uint32_t output_height = 720;
+  bool downsample = false;
+  DownsampleFilter filter = DownsampleFilter::kNone;
+  uint32_t halvings = 0;  // 2:1 box steps before the final bilinear one
+  float lod_bias = 0.0f;  // texture LOD bias for the render resolution
+};
+// Texture LOD bias for a render resolution: sharper mips as the frame grows.
+constexpr float LodBiasFor(uint32_t render_scale) {
+  return render_scale >= 3 ? -1.0f : render_scale == 2 ? -0.5f : 0.0f;
+}
+constexpr OutputPlan PlanOutput(uint32_t render_scale, uint32_t window_width,
+                                uint32_t window_height) {
+  OutputPlan plan;
+  plan.target_scale = render_scale;
+  plan.output_width = 1280 * render_scale;
+  plan.output_height = 720 * render_scale;
+  plan.lod_bias = LodBiasFor(render_scale);
+  // The window's 16:9 area, where the presenter puts the frame.
+  uint32_t fit_width = window_width, fit_height = window_height;
+  if (uint64_t(window_width) * 9 > uint64_t(window_height) * 16) {
+    fit_width = uint32_t(uint64_t(window_height) * 16 / 9);
+  } else {
+    fit_height = uint32_t(uint64_t(window_width) * 9 / 16);
   }
-  return guest_width == 1280 && guest_height == 720 ? 2 : 1;
+  // 720p goes to the presenter whatever the window: as before the remaster, and
+  // scene runs keep their 1280x720 frames.
+  if (render_scale <= 1 || fit_height == 0 || fit_width == 0 || plan.output_height <= fit_height) {
+    return plan;
+  }
+  plan.downsample = true;
+  while ((plan.output_height >> (plan.halvings + 1)) >= fit_height) {
+    ++plan.halvings;
+  }
+  plan.filter = (plan.output_height >> plan.halvings) == fit_height &&
+                        (plan.output_width >> plan.halvings) == fit_width
+                    ? DownsampleFilter::kBox
+                    : DownsampleFilter::kBilinear;
+  plan.output_width = fit_width;
+  plan.output_height = fit_height;
+  return plan;
 }
 
 // CAS sharpening (image-quality ticket 03), an Enhancement: the SDK presenter's

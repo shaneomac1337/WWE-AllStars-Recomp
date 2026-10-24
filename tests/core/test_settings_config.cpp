@@ -110,3 +110,75 @@ TEST_CASE("a config that does not parse is reported, a missing one is not") {
   std::filesystem::remove(path);
   CHECK(wwe::settings::ConfigError(path).empty());
 }
+
+TEST_CASE("migration: Supersampling On at 720p becomes 1440p") {
+  using wwe::settings::MigrateSettingsText;
+  CHECK(MigrateSettingsText("wwe_native_supersample = true\n") ==
+        "wwe_native_resolution_scale = 2\n");
+  CHECK(MigrateSettingsText("wwe_native_resolution_scale = 1\r\nwwe_native_supersample = true\r\n") ==
+        "wwe_native_resolution_scale = 2\r\n");
+}
+
+TEST_CASE("migration: a chosen render resolution wins over Supersampling") {
+  using wwe::settings::MigrateSettingsText;
+  CHECK(MigrateSettingsText("wwe_native_supersample = true\nwwe_native_resolution_scale = 3\n") ==
+        "wwe_native_resolution_scale = 3\n");
+  CHECK(MigrateSettingsText("wwe_native_resolution_scale = 2\nwwe_native_supersample = false\n") ==
+        "wwe_native_resolution_scale = 2\n");
+}
+
+TEST_CASE("migration: Supersampling Off drops the key and keeps 720p") {
+  using wwe::settings::MigrateSettingsText;
+  CHECK(MigrateSettingsText("wwe_native_cas = 0\nwwe_native_supersample = false\n") ==
+        "wwe_native_cas = 0\nwwe_native_resolution_scale = 1\n");
+}
+
+// The same cases as the launcher's SettingsFileTests, so both migrate a file alike.
+TEST_CASE("migration reads the old value as the launcher does: comments, quotes, empty") {
+  using wwe::settings::MigrateSettingsText;
+  CHECK(MigrateSettingsText("wwe_native_supersample = true # set in game\n") ==
+        "wwe_native_resolution_scale = 2\n");
+  CHECK(MigrateSettingsText("wwe_native_supersample = \"true\"\n") ==
+        "wwe_native_resolution_scale = 2\n");
+  CHECK(MigrateSettingsText("wwe_native_supersample =\n") == "wwe_native_resolution_scale = 1\n");
+}
+
+TEST_CASE("migration: a file without the old key is left as it is") {
+  const std::string text = "wwe_native_cas = 0.25\nwwe_native_resolution_scale = 1\n";
+  CHECK(wwe::settings::MigrateSettingsText(text) == text);
+}
+
+TEST_CASE("migration rewrites the file once") {
+  const auto path = std::filesystem::temp_directory_path() / "wwe_test_migrate.toml";
+  {
+    std::ofstream out(path, std::ios::binary);
+    out << "wwe_native_supersample = true\n";
+  }
+  CHECK(wwe::settings::MigrateSettingsFile(path));
+  CHECK_FALSE(wwe::settings::MigrateSettingsFile(path));
+  std::ifstream in(path, std::ios::binary);
+  std::ostringstream text;
+  text << in.rdbuf();
+  CHECK(text.str() == "wwe_native_resolution_scale = 2\n");
+  in.close();
+  std::filesystem::remove(path);
+}
+
+TEST_CASE("a removed or unknown key in a config is ignored, the rest still loads") {
+  static double flag_double = 0;
+  rex::cvar::RegisterFlag({.name = "test_settings_known", .type = rex::cvar::FlagType::Double,
+                           .category = "Test/Settings",
+                           .setter = [](std::string_view v) { flag_double = std::stod(std::string(v)); return true; },
+                           .getter = [] { return std::to_string(flag_double); },
+                           .default_value = "0"});
+  const auto path = std::filesystem::temp_directory_path() / "wwe_test_unknown.toml";
+  {
+    std::ofstream out(path, std::ios::binary);
+    out << "test_settings_removed_key = true\ntest_settings_known = 0.75\n";
+  }
+  CHECK(wwe::settings::ConfigError(path).empty());
+  rex::cvar::LoadConfig(path);
+  CHECK(flag_double == 0.75);
+  std::filesystem::remove(path);
+  rex::cvar::UnregisterFlag("test_settings_known");
+}

@@ -40,8 +40,8 @@ TEST_CASE("the schema export lists every registry entry with its startup flag") 
       SettingLines(SchemaJson(WithLifecycles(PlayerSettings())));
   REQUIRE(lines.size() == PlayerSettings().size());
   // The launcher shows the settings that take effect when the game starts (spec, "Settings").
-  for (const char* name : {"fullscreen", "wwe_native_renderer", "wwe_native_supersample",
-                           "wwe_native_resolution_scale", "wwe_native_anisotropy"}) {
+  for (const char* name : {"fullscreen", "wwe_native_renderer", "wwe_native_resolution_scale",
+                           "wwe_native_anisotropy"}) {
     INFO(name);
     REQUIRE(lines.contains(name));
     CHECK(Has(lines.at(name), "\"applies_at_startup\": true"));
@@ -58,8 +58,7 @@ TEST_CASE("the schema export lists every registry entry with its startup flag") 
 TEST_CASE("the schema export marks the Native-only settings") {
   const std::map<std::string, std::string> lines =
       SettingLines(SchemaJson(WithLifecycles(PlayerSettings())));
-  for (const char* name : {"wwe_native_supersample", "wwe_native_cas",
-                           "wwe_native_resolution_scale", "wwe_native_anisotropy"}) {
+  for (const char* name : {"wwe_native_cas", "wwe_native_resolution_scale", "wwe_native_anisotropy"}) {
     INFO(name);
     CHECK(Has(lines.at(name), "\"native_only\": true"));
   }
@@ -77,7 +76,7 @@ TEST_CASE("the schema export gives each setting its cvar type, default choice an
   CHECK(Has(lines.at("fullscreen"),
             "\"type\": \"bool\", \"default\": \"true\", \"applies_at_startup\": true, "
             "\"native_only\": false, \"next_start\": false"));
-  CHECK(Has(lines.at("wwe_native_resolution_scale"), "\"type\": \"int\", \"default\": \"1\""));
+  CHECK(Has(lines.at("wwe_native_resolution_scale"), "\"type\": \"int\", \"default\": \"2\""));
   // The cvar's default 0.5 is spelled as its choice, so the launcher can select it.
   CHECK(Has(lines.at("wwe_native_cas"), "\"type\": \"double\", \"default\": \"0.5\""));
   CHECK(Has(lines.at("wwe_native_renderer"), "\"next_start\": true"));
@@ -116,14 +115,16 @@ TEST_CASE("the schema export carries the Graphics preset row with its members an
   // No cvar of its own; its default is the preset the members' defaults match.
   CHECK(Has(line, "\"type\": \"\", \"default\": \"high\", \"applies_at_startup\": true, "
                   "\"native_only\": true, \"next_start\": true"));
-  CHECK(Has(line, "\"members\": [\"wwe_native_supersample\", \"wwe_native_resolution_scale\", "
-                  "\"wwe_native_cas\", \"wwe_native_anisotropy\"]"));
+  CHECK(Has(line, "\"members\": [\"wwe_native_resolution_scale\", \"wwe_native_cas\", "
+                  "\"wwe_native_anisotropy\"]"));
   CHECK(Has(line, "\"presets\": [{\"value\": \"low\", \"label\": \"Low\", "
-                  "\"values\": [\"false\", \"1\", \"0\", \"2\"]}, "
+                  "\"values\": [\"1\", \"0\", \"2\"]}, "
                   "{\"value\": \"medium\", \"label\": \"Medium\", "
-                  "\"values\": [\"false\", \"1\", \"0.5\", \"3\"]}, "
+                  "\"values\": [\"1\", \"0.5\", \"3\"]}, "
                   "{\"value\": \"high\", \"label\": \"High\", "
-                  "\"values\": [\"true\", \"1\", \"0.5\", \"3\"]}]"));
+                  "\"values\": [\"2\", \"0.5\", \"3\"]}, "
+                  "{\"value\": \"ultra\", \"label\": \"Ultra\", "
+                  "\"values\": [\"3\", \"0.25\", \"5\"]}]"));
   CHECK(Has(line, "{\"value\": \"custom\", \"label\": \"Custom\"}"));
   // Ordinary rows carry neither field.
   CHECK_FALSE(Has(lines.at("fullscreen"), "\"members\""));

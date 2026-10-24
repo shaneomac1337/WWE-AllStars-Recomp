@@ -23,6 +23,10 @@ void Configure(rex::Runtime* runtime);
 
 bool IsEnabled();
 
+// The game window's client size in pixels, from the UI thread on every resize;
+// the next frame's output plan fits it (graphics-remaster ticket 01).
+void SetWindowSize(uint32_t width, uint32_t height);
+
 // The SDK lost the device (presenter or GPU plugin, any thread): under Native,
 // ends the session as a GPU failure (ADR-0025) and never returns; otherwise
 // returns and the SDK ends the game as before.

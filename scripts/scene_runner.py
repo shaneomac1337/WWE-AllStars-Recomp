@@ -53,7 +53,7 @@ EXE = ROOT / "out/build/win-amd64-relwithdebinfo-vulkan/wweallstars.exe"
 # Enhancements (CONTEXT.md): options beyond the oracle, by cvar with the value
 # that turns each off (vibration and colour: Original, as the Xbox 360). Every scene run
 # turns them off; a new enhancement is added here and to the native session report.
-ENHANCEMENTS = {"wwe_native_supersample": "false", "wwe_native_cas": "0",
+ENHANCEMENTS = {"wwe_native_cas": "0",
                 "wwe_vibration_mode": "1", "wwe_native_color_mode": "0",
                 "wwe_60fps_entrances": "false", "wwe_120fps_matches": "false",
                 "wwe_unlock_everything": "false"}

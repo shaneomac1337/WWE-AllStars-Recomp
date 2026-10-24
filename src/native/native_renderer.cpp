@@ -111,7 +111,6 @@ REXCVAR_DEFINE_BOOL(wwe_native_bind_used_slots, true, "WWEAllStars",
                     "Native renderer: bind textures only in the fetch slots the draw's shaders "
                     "read (from the shader pack)");
 // Player settings, defined in settings_cvars.cpp.
-REXCVAR_DECLARE(bool, wwe_native_supersample);
 REXCVAR_DECLARE(double, wwe_native_cas);
 REXCVAR_DECLARE(int32_t, wwe_native_resolution_scale);
 REXCVAR_DECLARE(bool, wwe_60fps_entrances);
@@ -324,6 +323,8 @@ struct FrameSlot {
   VkImage image = VK_NULL_HANDLE;
   VkDeviceMemory memory = VK_NULL_HANDLE;
   VkImageView view = VK_NULL_HANDLE;
+  uint32_t width = 0;  // the output image's size (guest::PlanOutput)
+  uint32_t height = 0;
   VkCommandPool command_pool = VK_NULL_HANDLE;
   VkCommandBuffer upload_cb = VK_NULL_HANDLE;
   VkCommandBuffer main_cb = VK_NULL_HANDLE;
@@ -342,12 +343,21 @@ struct Stats {
 struct State {
   const VulkanDevice* device = nullptr;
   FrameSlot slots[kFramesInFlight];
-  // Output size: the guest front buffer times the resolution scale.
+  // Render size: the guest front buffer times the render resolution scale.
+  // The output (each slot's image) is that, or the window's 16:9 area when
+  // the window is smaller (guest::PlanOutput).
   uint32_t scale = 1;
-  bool supersample = false;  // --wwe_native_supersample, an Enhancement
   ColourMode colour = ColourMode::kNatural;  // --wwe_native_color_mode, an Enhancement
   uint32_t width = 1280;
   uint32_t height = 720;
+  // 2:1 steps of the downsample, largest first; kept while the sizes match.
+  struct HalfImage {
+    VkImage image = VK_NULL_HANDLE;
+    VkDeviceMemory memory = VK_NULL_HANDLE;
+    uint32_t width = 0;
+    uint32_t height = 0;
+  };
+  std::vector<HalfImage> halves;
   uint64_t frame = 0;
   bool recording = false;
   // Blocks of this frame's upload ring that later draws reuse while their
@@ -521,34 +531,65 @@ void TransitionTarget(RenderTarget& target, VkImageLayout layout) {
   target.layout = layout;
 }
 
-bool CreateFrameSlot(FrameSlot& slot) {
-  const VulkanDevice::Functions& dfn = *g_vk.dfn;
-  const VkDevice device = g_vk.vk_device;
-
+// A transfer image for the output or a downsample step.
+bool CreateTransferImage(uint32_t width, uint32_t height, VkImageUsageFlags usage,
+                         VkImage& image, VkDeviceMemory& memory) {
   VkImageCreateInfo image_info = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
   image_info.imageType = VK_IMAGE_TYPE_2D;
   image_info.format = VK_FORMAT_R8G8B8A8_UNORM;
-  image_info.extent = {g.width, g.height, 1};
+  image_info.extent = {width, height, 1};
   image_info.mipLevels = 1;
   image_info.arrayLayers = 1;
   image_info.samples = VK_SAMPLE_COUNT_1_BIT;
   image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-  image_info.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                     VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+  image_info.usage = usage;
   image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
   image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  if (!vk_util::CreateDedicatedAllocationImage(g.device, image_info,
-                                               vk_util::MemoryPurpose::kDeviceLocal, slot.image,
-                                               slot.memory)) {
+  return vk_util::CreateDedicatedAllocationImage(g.device, image_info,
+                                                 vk_util::MemoryPurpose::kDeviceLocal, image,
+                                                 memory);
+}
+
+// The slot's output image at width x height, the old one retired.
+bool CreateOutputImage(FrameSlot& slot, uint32_t width, uint32_t height) {
+  if (slot.image) {
+    Retired retired;
+    retired.image = slot.image;
+    retired.memory = slot.memory;
+    retired.views.push_back(slot.view);
+    Retire(std::move(retired));
+    slot.image = VK_NULL_HANDLE;
+    slot.memory = VK_NULL_HANDLE;
+    slot.view = VK_NULL_HANDLE;
+    slot.width = slot.height = 0;
+  }
+  if (!CreateTransferImage(width, height,
+                           VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                               VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                               VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+                           slot.image, slot.memory)) {
     return false;
   }
-
   VkImageViewCreateInfo view_info = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
   view_info.image = slot.image;
   view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
   view_info.format = VK_FORMAT_R8G8B8A8_UNORM;
   view_info.subresourceRange = vk_util::InitializeSubresourceRange();
-  if (dfn.vkCreateImageView(device, &view_info, nullptr, &slot.view) != VK_SUCCESS) {
+  if (g_vk.dfn->vkCreateImageView(g_vk.vk_device, &view_info, nullptr, &slot.view) !=
+      VK_SUCCESS) {
+    return false;
+  }
+  slot.width = width;
+  slot.height = height;
+  g_labels.Name(g_vk.vk_device, VK_OBJECT_TYPE_IMAGE, uint64_t(slot.image),
+                fmt::format("native output {}x{}", width, height));
+  return true;
+}
+
+bool CreateFrameSlot(FrameSlot& slot) {
+  const VulkanDevice::Functions& dfn = *g_vk.dfn;
+  const VkDevice device = g_vk.vk_device;
+  if (!CreateOutputImage(slot, g.width, g.height)) {
     return false;
   }
 
@@ -913,11 +954,11 @@ void EndRendering() {
 // width and height are the guest size.
 RenderTarget* GetRenderTarget(uint64_t key, VkFormat format, uint32_t guest_width,
                               uint32_t guest_height, bool is_depth) {
-  const uint32_t scale = TargetScale(guest_width, guest_height, g.scale, g.supersample);
+  const uint32_t scale = g.scale;
   const uint32_t width = guest_width * scale;
   const uint32_t height = guest_height * scale;
   std::unique_ptr<RenderTarget>& slot = g.render_targets[key];
-  // A surface reused at another scale (supersampled or not) is a new image.
+  // A surface reused at another scale is a new image.
   if (slot && (slot->width < width || slot->height < height || slot->scale != scale)) {
     // Grows in place of the old one, which frames in flight may still use.
     if (g.active_color == slot.get() || g.active_depth == slot.get()) {
@@ -1429,20 +1470,15 @@ void Configure(rex::Runtime* runtime) {
     }
   }
   g.device = provider ? provider->vulkan_device() : nullptr;
-  g.scale = uint32_t(std::clamp(REXCVAR_GET(wwe_native_resolution_scale), 1, 3));
-  g.supersample = REXCVAR_GET(wwe_native_supersample);
-  if (g.supersample && g.scale > 1) {
-    REXLOG_WARN("native renderer: --wwe_native_supersample is ignored with "
-                "--wwe_native_resolution_scale={}", g.scale);
-    g.supersample = false;
-  }
+  g.scale = uint32_t(std::clamp(REXCVAR_GET(wwe_native_resolution_scale), 1, 4));
   g.colour = REXCVAR_GET(wwe_native_color_mode) == 0 ? ColourMode::kOriginal
                                                       : ColourMode::kNatural;
   g.width = 1280 * g.scale;
   g.height = 720 * g.scale;
   bool ok = g.device && InitializeContext(g.device, runtime->memory()) &&
             CreateUploadRings(kFramesInFlight, kUploadRingSize) &&
-            textures::Initialize(g.scale, g.colour) && geometry::Initialize() &&
+            textures::Initialize(g.scale, g.colour, LodBiasFor(g.scale)) &&
+            geometry::Initialize() &&
             write_watch::Initialize(runtime->memory());
   for (FrameSlot& slot : g.slots) {
     ok = ok && CreateFrameSlot(slot);
@@ -1455,20 +1491,26 @@ void Configure(rex::Runtime* runtime) {
   }
   InitializeGpuTimer();
   InitializeDebugLabels();
-  for (uint32_t i = 0; i < kFramesInFlight; ++i) {
-    g_labels.Name(g_vk.vk_device, VK_OBJECT_TYPE_IMAGE, uint64_t(g.slots[i].image),
-                  fmt::format("native output {}", i));
-  }
   shader_library::Initialize(g.device, std::move(pack.pack));
   pipelines::Initialize(converter_id, runtime->cache_root(), g.colour);
   if (!pipelines::PrepareMode()) {
     topup_converter::Configure(runtime->cache_root(), converter_id);
   }
   rex::system::external_frame::SetEnabled(true);
-  REXLOG_INFO("native renderer: enabled, output {}x{}", g.width, g.height);
+  REXLOG_INFO("native renderer: enabled, render size {}x{}", g.width, g.height);
 }
 
 bool IsEnabled() { return g.device != nullptr; }
+
+// The window size SetWindowSize last gave, width in the high half; 0 before the first.
+std::atomic<uint64_t> g_window_size{0};
+
+void SetWindowSize(uint32_t width, uint32_t height) {
+  // A minimised window has no area: the last plan's size stays.
+  if (width && height) {
+    g_window_size.store((uint64_t(width) << 32) | height, std::memory_order_relaxed);
+  }
+}
 
 bool PrepareRequested() { return pipelines::PrepareMode(); }
 
@@ -1539,8 +1581,7 @@ struct Enhancement {
   const char* name;
   bool (*on)();
 };
-constexpr std::array<Enhancement, 7> kEnhancements = {{
-    {"wwe_native_supersample", [] { return g.device != nullptr && g.supersample; }},
+constexpr std::array<Enhancement, 6> kEnhancements = {{
     {"wwe_native_cas", [] { return g.device != nullptr && g_cas_applied; }},
     {"wwe_vibration_mode",
      [] { return wwe::vibration::CurrentMode() == wwe::vibration::Mode::kEnhanced; }},
@@ -2559,7 +2600,7 @@ void WriteRgbImage(const std::string& path, const uint8_t* rgb, uint32_t width, 
 // Waits for the frame and writes the copied image as a binary PPM (RGB),
 // logging its channel ranges so a black frame shows in the log too.
 void WriteFrameDump(VkBuffer buffer, VkDeviceMemory memory, VkFence fence,
-                    const std::string& path) {
+                    const std::string& path, uint32_t width, uint32_t height) {
   const VulkanDevice::Functions& dfn = *g_vk.dfn;
   const VkResult waited = dfn.vkWaitForFences(g_vk.vk_device, 1, &fence, VK_TRUE, UINT64_MAX);
   if (waited < 0) {
@@ -2572,7 +2613,7 @@ void WriteFrameDump(VkBuffer buffer, VkDeviceMemory memory, VkFence fence,
     range.size = VK_WHOLE_SIZE;
     dfn.vkInvalidateMappedMemoryRanges(g_vk.vk_device, 1, &range);
     const auto* rgba = static_cast<const uint8_t*>(mapped);
-    const size_t pixels = size_t(g.width) * g.height;
+    const size_t pixels = size_t(width) * height;
     uint8_t max_rgb[3] = {};
     std::vector<uint8_t> rgb(pixels * 3);
     for (size_t i = 0; i < pixels; ++i) {
@@ -2581,7 +2622,7 @@ void WriteFrameDump(VkBuffer buffer, VkDeviceMemory memory, VkFence fence,
         max_rgb[c] = std::max(max_rgb[c], rgba[i * 4 + c]);
       }
     }
-    WriteRgbImage(path, rgb.data(), g.width, g.height);
+    WriteRgbImage(path, rgb.data(), width, height);
     REXLOG_INFO("native renderer: dumped frame {} to {} (max rgb {} {} {})", g.frame, path,
                 max_rgb[0], max_rgb[1], max_rgb[2]);
     dfn.vkUnmapMemory(g_vk.vk_device, memory);
@@ -2666,6 +2707,75 @@ static void RaiseRenderThreadPriority() {
               pacing::ThreadPriorityChoiceName(choice));
 }
 
+// The output plan for the window as it is now, so a resize shows on the next frame.
+OutputPlan PlanForWindow() {
+  const uint64_t size = g_window_size.load(std::memory_order_relaxed);
+  return PlanOutput(g.scale, uint32_t(size >> 32), uint32_t(size));
+}
+
+void BlitImage(VkCommandBuffer cb, VkImage from, uint32_t from_width, uint32_t from_height,
+               VkImage to, uint32_t to_width, uint32_t to_height) {
+  VkImageBlit blit = {};
+  blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+  blit.srcOffsets[1] = {int32_t(from_width), int32_t(from_height), 1};
+  blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+  blit.dstOffsets[1] = {int32_t(to_width), int32_t(to_height), 1};
+  g_vk.vkCmdBlitImage(cb, from, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, to,
+                      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+}
+
+// Downsample step `index` at width x height, made again when its size changes.
+State::HalfImage& HalfImageAt(size_t index, uint32_t width, uint32_t height) {
+  if (g.halves.size() <= index) {
+    g.halves.resize(index + 1);
+  }
+  State::HalfImage& half = g.halves[index];
+  if (half.width != width || half.height != height) {
+    if (half.image) {
+      Retired retired;
+      retired.image = half.image;
+      retired.memory = half.memory;
+      Retire(std::move(retired));
+      half = {};
+    }
+    if (!CreateTransferImage(width, height,
+                             VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                             half.image, half.memory)) {
+      EndSessionWithGpuFailure(VK_ERROR_OUT_OF_DEVICE_MEMORY, "downsample image");
+    }
+    half.width = width;
+    half.height = height;
+  }
+  return half;
+}
+
+// Copies the front buffer into the slot's output image, filtered down to the
+// output size when the plan says so: 2:1 box steps (a linear blit at exactly
+// half size averages 2x2 texels), then one bilinear blit for any rest.
+void BlitToOutput(VkCommandBuffer cb, const textures::ResolveTarget& source,
+                  const OutputPlan& plan, FrameSlot& slot) {
+  VkImage from = source.image;
+  uint32_t from_width = source.width, from_height = source.height;
+  const uint32_t steps = plan.downsample ? plan.halvings : 0;
+  for (uint32_t i = 0; i < steps; ++i) {
+    const bool last_box = i + 1 == steps && plan.filter == DownsampleFilter::kBox;
+    if (last_box) {
+      BlitImage(cb, from, from_width, from_height, slot.image, slot.width, slot.height);
+      return;
+    }
+    State::HalfImage& half = HalfImageAt(i, from_width / 2, from_height / 2);
+    ImageBarrier(cb, half.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    BlitImage(cb, from, from_width, from_height, half.image, half.width, half.height);
+    ImageBarrier(cb, half.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                 VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    from = half.image;
+    from_width = half.width;
+    from_height = half.height;
+  }
+  BlitImage(cb, from, from_width, from_height, slot.image, slot.width, slot.height);
+}
+
 void OnPresent(const uint8_t* base, uint32_t device, uint32_t front_buffer) {
   const HookTimer timer;
   if (!g.device) {
@@ -2697,7 +2807,12 @@ void OnPresent(const uint8_t* base, uint32_t device, uint32_t front_buffer) {
     LogRenderThreadTotals(false);
   }
 
-  if (NamingWork()) BeginWork(gpu_timer::Span::kPresent, PresentName(g.width, g.height));
+  const OutputPlan plan = PlanForWindow();
+  if ((slot.width != plan.output_width || slot.height != plan.output_height) &&
+      !CreateOutputImage(slot, plan.output_width, plan.output_height)) {
+    EndSessionWithGpuFailure(VK_ERROR_OUT_OF_DEVICE_MEMORY, "output image");
+  }
+  if (NamingWork()) BeginWork(gpu_timer::Span::kPresent, PresentName(slot.width, slot.height));
   ImageBarrier(cb, slot.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
   textures::ResolveTarget source;
@@ -2731,13 +2846,7 @@ void OnPresent(const uint8_t* base, uint32_t device, uint32_t front_buffer) {
   if (source.image) {
     ImageBarrier(cb, source.image, VK_IMAGE_ASPECT_COLOR_BIT, *source.layout,
                  VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-    VkImageBlit blit = {};
-    blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    blit.srcOffsets[1] = {int32_t(source.width), int32_t(source.height), 1};
-    blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    blit.dstOffsets[1] = {int32_t(g.width), int32_t(g.height), 1};
-    g_vk.vkCmdBlitImage(cb, source.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, slot.image,
-                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+    BlitToOutput(cb, source, plan, slot);
     ImageBarrier(cb, source.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     *source.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -2753,7 +2862,7 @@ void OnPresent(const uint8_t* base, uint32_t device, uint32_t front_buffer) {
   VkImageLayout output_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
   const std::string dump_path = DumpTarget(g.frame);
   if (!dump_path.empty() &&
-      vk_util::CreateDedicatedAllocationBuffer(g.device, VkDeviceSize(g.width) * g.height * 4,
+      vk_util::CreateDedicatedAllocationBuffer(g.device, VkDeviceSize(slot.width) * slot.height * 4,
                                                VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                                                vk_util::MemoryPurpose::kReadback, dump_buffer,
                                                dump_memory)) {
@@ -2762,7 +2871,7 @@ void OnPresent(const uint8_t* base, uint32_t device, uint32_t front_buffer) {
     output_layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     VkBufferImageCopy region = {};
     region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    region.imageExtent = {g.width, g.height, 1};
+    region.imageExtent = {slot.width, slot.height, 1};
     dfn.vkCmdCopyImageToBuffer(cb, slot.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dump_buffer,
                                1, &region);
   }
@@ -2794,13 +2903,13 @@ void OnPresent(const uint8_t* base, uint32_t device, uint32_t front_buffer) {
   }
 
   if (dump_buffer) {
-    WriteFrameDump(dump_buffer, dump_memory, slot.fence, dump_path);
+    WriteFrameDump(dump_buffer, dump_memory, slot.fence, dump_path, slot.width, slot.height);
   }
 
   rex::system::external_frame::Frame frame;
   frame.image_view = uint64_t(reinterpret_cast<uintptr_t>(slot.view));
-  frame.width = g.width;
-  frame.height = g.height;
+  frame.width = slot.width;
+  frame.height = slot.height;
   frame.sequence = g.frame;
   rex::system::external_frame::Publish(frame);
   LogHitch();

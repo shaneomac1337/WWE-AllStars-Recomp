@@ -85,6 +85,37 @@ public sealed class SettingsFileTests : IDisposable
         }, values);
     }
 
+    [Theory]
+    [InlineData("wwe_native_supersample = true\n", "wwe_native_resolution_scale = 2\n")]
+    [InlineData("wwe_native_resolution_scale = 1\r\nwwe_native_supersample = true\r\n", "wwe_native_resolution_scale = 2\r\n")]
+    [InlineData("wwe_native_supersample = true\nwwe_native_resolution_scale = 3\n", "wwe_native_resolution_scale = 3\n")]
+    [InlineData("fullscreen = true\nwwe_native_supersample = false\n", "fullscreen = true\nwwe_native_resolution_scale = 1\n")]
+    // The same cases as the game's test_settings_config, so both migrate a file alike.
+    [InlineData("wwe_native_supersample = true # set in game\n", "wwe_native_resolution_scale = 2\n")]
+    [InlineData("wwe_native_supersample = \"true\"\n", "wwe_native_resolution_scale = 2\n")]
+    [InlineData("wwe_native_supersample =\n", "wwe_native_resolution_scale = 1\n")]
+    public void An_old_Supersampling_line_becomes_a_render_resolution_once_when_the_file_is_read(string before, string after)
+    {
+        File.WriteAllText(SettingsPath, before);
+
+        new SettingsFile(SettingsPath, Schema).Read();
+
+        Assert.Equal(after, File.ReadAllText(SettingsPath));
+    }
+
+    [Fact]
+    public void A_file_without_the_old_Supersampling_line_is_not_rewritten_on_read()
+    {
+        File.WriteAllText(SettingsPath, "wwe_native_resolution_scale = 1\nwwe_removed_key = 3\n");
+        var written = File.GetLastWriteTimeUtc(SettingsPath);
+
+        var values = new SettingsFile(SettingsPath, Schema).Read();
+
+        Assert.Equal("1", values["wwe_native_resolution_scale"]);
+        Assert.Equal(written, File.GetLastWriteTimeUtc(SettingsPath));
+        Assert.Equal("wwe_native_resolution_scale = 1\nwwe_removed_key = 3\n", File.ReadAllText(SettingsPath));
+    }
+
     [Fact]
     public void A_missing_settings_file_reads_as_the_defaults_and_the_first_change_creates_it()
     {

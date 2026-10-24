@@ -70,7 +70,7 @@ Frame GameFrame() {
 // The gold-orange rule under the game's titles: bright in the middle, fading out.
 void Rule(ImDrawList* draw, const Frame& f, float y) {
   const ImU32 clear = IM_COL32(255, 140, 20, 0);
-  const ImVec2 a = f.At(110, y), m = f.At(385, y + 3), b = f.At(660, y);
+  const ImVec2 a = f.At(110, y), m = f.At(435, y + 3), b = f.At(760, y);
   draw->AddRectFilledMultiColor(a, {m.x, m.y}, clear, kRuleOrange, kRuleOrange, clear);
   draw->AddRectFilledMultiColor({m.x, a.y}, {b.x, m.y}, kRuleOrange, clear, clear, kRuleOrange);
 }
@@ -196,10 +196,16 @@ class PageDialog final : public rex::ui::ImGuiDialog {
   void DrawPage() {
     ImDrawList* draw = ImGui::GetForegroundDrawList();
     const Frame f = GameFrame();
-    // Covers the game's own menu column (title at y 66, help text to y 590).
-    draw->AddRectFilledMultiColor(f.At(90, 52), f.At(690, 622), kPanelTop, kPanelTop,
+    // Covers the game's own menu column (title at y 66, help text to y 590), taller
+    // than it so GRAPHICS's eight rows keep full-size bars and the preset's long help
+    // fits, and wide enough for all six tabs.
+    draw->AddRectFilledMultiColor(f.At(90, 30), f.At(780, 714), kPanelTop, kPanelTop,
                                   kPanelBottom, kPanelBottom);
-    draw->AddRect(f.At(90, 52), f.At(690, 622), IM_COL32(60, 110, 200, 160), 0, 0, 1.5f * f.scale);
+    draw->AddRect(f.At(90, 30), f.At(780, 714), IM_COL32(60, 110, 200, 160), 0, 0, 1.5f * f.scale);
+    if (!g.config_error.empty()) {
+      Text(draw, g.body, 16, f, 118, 50, IM_COL32(255, 120, 60, 255),
+           "wweallstars.toml has an error and is ignored (details in the log).");
+    }
     Text(draw, g.heading, 46, f, 118, 88, kWhite, "PC SETTINGS");
     Rule(draw, f, 140);
 
@@ -214,15 +220,17 @@ class PageDialog final : public rex::ui::ImGuiDialog {
     Text(draw, g.heading, 24, f, x, 150, kGrey, "RB");
 
     const std::vector<Setting>& settings = model_.settings();
-    // Rows fill y 188..488 above the rule: 56 apart, closer on a tab with more
-    // than five (GRAPHICS, with the Graphics preset).
+    // Rows fill y 188..564 above the rule: 56 apart, closer on a tab with more
+    // than six. Text shrinks only when a bar gets too short for it.
     const std::vector<size_t> rows = model_.rows();
-    const float step = std::min(56.0f, 300.0f / float(std::max<size_t>(rows.size(), 1)));
-    const float bar = step - 8, inset = (bar - 34) / 2;
+    const float step = std::min(56.0f, 376.0f / float(std::max<size_t>(rows.size(), 1)));
+    const float bar = step - 8;
+    const float label_size = std::min(32.0f, bar - 6), value_max = std::min(30.0f, bar - 8);
+    const float inset = (bar - label_size - 2) / 2;
     float y = 188;
     for (size_t i : rows) {
       const bool selected = i == model_.row();
-      const ImVec2 a = f.At(120, y), b = f.At(650, y + bar);
+      const ImVec2 a = f.At(120, y), b = f.At(750, y + bar);
       if (selected) {
         draw->AddRectFilledMultiColor(a, b, kBarTop, kBarTop, kBarBottom, kBarBottom);
         draw->AddLine(a, {b.x, a.y}, IM_COL32(150, 210, 255, 255), 2 * f.scale);
@@ -230,11 +238,11 @@ class PageDialog final : public rex::ui::ImGuiDialog {
         draw->AddRectFilled(a, b, kBarIdle);
       }
       const ImU32 color = selected ? kGold : kGrey;
-      Text(draw, g.heading, 32, f, 140, y + inset, color, settings[i].label);
+      Text(draw, g.heading, label_size, f, 140, y + inset, color, settings[i].label);
       std::string value = model_.ValueLabel(i) + (model_.needs_restart(i) ? " *" : "");
       // A text value (the game server's URL) shrinks to fit the bar, then is cut short.
-      constexpr float kRoom = 205;  // the bar between the value's arrows, 435..645
-      float size = 30;
+      constexpr float kRoom = 205;  // the bar between the value's arrows, 495..705
+      float size = value_max;
       float width = TextWidth(g.heading, size, f, value);
       if (settings[i].is_text() && width > kRoom) {
         size = std::max(20.0f, size * kRoom / width);
@@ -246,29 +254,25 @@ class PageDialog final : public rex::ui::ImGuiDialog {
       const ImU32 value_color = settings[i].pinned ? IM_COL32(255, 150, 60, 255)  // launch options
                                 : selected            ? kWhite
                                                       : kGrey;
-      Text(draw, g.heading, size, f, 540 - width / 2, y + inset + 1 + (30 - size) / 2, value_color,
+      Text(draw, g.heading, size, f, 600 - width / 2, y + inset + 1 + (value_max - size) / 2, value_color,
            value);
       // Read-only rows (text, changed in the launcher) have nothing to step through.
       if (selected && !settings[i].is_text()) {
-        Arrow(draw, f, 432, y + bar / 2, true);
-        Arrow(draw, f, 626, y + bar / 2, false);
+        Arrow(draw, f, 492, y + bar / 2, true);
+        Arrow(draw, f, 686, y + bar / 2, false);
       }
       y += step;
     }
 
-    Rule(draw, f, 492);
+    Rule(draw, f, 568);
     const size_t row = model_.row();
-    Text(draw, g.body, 21, f, 118, 504, kWhite, settings[row].help, 540);
+    Text(draw, g.body, 21, f, 118, 578, kWhite, settings[row].help, 620);
     // A long help line (the Graphics preset's) pushes the note down.
     ImFont* body = g.body ? g.body : ImGui::GetFont();
     const float help_bottom =
-        504 + body->CalcTextSizeA(21 * f.scale, FLT_MAX, 540 * f.scale_x, settings[row].help.c_str())
+        578 + body->CalcTextSizeA(21 * f.scale, FLT_MAX, 620 * f.scale_x, settings[row].help.c_str())
                       .y / f.scale;
-    const float note_y = std::max(566.0f, help_bottom + 6);
-    if (!g.config_error.empty()) {
-      Text(draw, g.body, 16, f, 118, 596, IM_COL32(255, 120, 60, 255),
-           "wweallstars.toml has an error and is ignored (details in the log).");
-    }
+    const float note_y = std::max(640.0f, help_bottom + 6);
     if (const std::string note = model_.ApplyNote(row); !note.empty()) {
       Text(draw, g.body, 21, f, 118, note_y, model_.needs_restart(row) ? kGold : kGrey, note);
     }
@@ -328,6 +332,12 @@ void RequestOpen() {
 
 void LoadSettingsFile(const std::filesystem::path& config_path,
                       const std::filesystem::path& user_data_root) {
+  // Graphics remaster: Supersampling becomes a render resolution, once (the main
+  // config migrates before the SDK loads it, in OnConfigurePaths).
+  if (MigrateSettingsFile(SettingsPath(user_data_root))) {
+    REXLOG_INFO("settings: {} moved from Supersampling to Render resolution",
+                SettingsPath(user_data_root).string());
+  }
   g.config_error = ConfigError(config_path);
   if (!g.config_error.empty()) {
     REXLOG_ERROR("{} does not parse and was ignored: {}", config_path.string(), g.config_error);

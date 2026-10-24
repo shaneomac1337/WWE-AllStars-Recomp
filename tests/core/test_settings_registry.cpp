@@ -35,7 +35,7 @@ TEST_CASE("the page shows the spec's settings on six tabs") {
   CHECK(tabs == std::set<std::string>{"DISPLAY", "GRAPHICS", "AUDIO", "CONTROLS", "GAMEPLAY", "ONLINE"});
   CHECK(names == std::set<std::string>{
                      "fullscreen", "present_vsync", "vblank_follows_display",
-                     "wwe_native_renderer", "wwe_native_supersample", "wwe_native_cas",
+                     "wwe_native_renderer", "wwe_native_cas",
                      "wwe_native_resolution_scale", "wwe_native_anisotropy",
                      "wwe_native_color_mode", "wwe_60fps_entrances", "wwe_120fps_matches",
                      "audio_mute",

@@ -171,16 +171,16 @@ class RendererRulesTests(unittest.TestCase):
 
     def test_an_enhancement_on_fails_with_its_name(self):
         failures = renderer_failures(
-            report(enhancements=[{"name": "wwe_native_supersample", "on": True}]), run=1)
+            report(enhancements=[{"name": "wwe_native_cas", "on": True}]), run=1)
         self.assertEqual(len(failures), 1)
-        self.assertIn("wwe_native_supersample", failures[0])
+        self.assertIn("wwe_native_cas", failures[0])
 
     def test_enhancements_listed_off_pass(self):
-        rep = report(enhancements=[{"name": "wwe_native_supersample", "on": False}])
+        rep = report(enhancements=[{"name": "wwe_native_cas", "on": False}])
         self.assertEqual(renderer_failures(rep, run=1), [])
 
     def test_the_runner_turns_every_enhancement_off(self):
-        self.assertIn("wwe_native_supersample", ENHANCEMENTS)
+        self.assertNotIn("wwe_native_supersample", ENHANCEMENTS)  # removed in the graphics remaster
         self.assertIn("wwe_native_cas", ENHANCEMENTS)
         self.assertEqual(ENHANCEMENTS["wwe_vibration_mode"], "1")  # Original
         self.assertEqual(ENHANCEMENTS["wwe_native_color_mode"], "0")  # Original colour

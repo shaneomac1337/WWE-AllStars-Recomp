@@ -102,6 +102,8 @@ class WweAllStarsApp : public rex::ReXApp {
       paths.update_data_root = startup_.folders.update_data_root;
     }
     config_path_ = paths.config_path;
+    // Before the SDK loads it: Supersampling becomes a render resolution (graphics remaster).
+    wwe::settings::MigrateSettingsFile(config_path_);
     user_data_folder_ = paths.user_data_root;
     wwe::crash::SetSettingsFile(wwe::settings::SettingsPath(user_data_folder_));
   }
@@ -233,6 +235,13 @@ class WweAllStarsApp : public rex::ReXApp {
       return;
     }
     rex::ReXApp::OnKeyDown(e);
+  }
+
+  // Native fits its output to the window (graphics-remaster ticket 01); the
+  // render thread reads the size the UI thread hands over here.
+  void OnWindowPixelSizeChanged(uint32_t pixel_width, uint32_t pixel_height) override {
+    rex::ReXApp::OnWindowPixelSizeChanged(pixel_width, pixel_height);
+    wwe::native::SetWindowSize(pixel_width, pixel_height);
   }
 
   void OnPreLaunchModule() override {

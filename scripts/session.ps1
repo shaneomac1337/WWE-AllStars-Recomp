@@ -1,6 +1,6 @@
 # Drive a background game session: muted, never focused, window parked
 # off-screen. Input goes through the scripted pad (src/script_input.h).
-#   pwsh scripts/session.ps1 start [-Name s1] [-UserData <dir>] [-ExtraArguments '--wwe_native=true']
+#   pwsh scripts/session.ps1 start [-Name s1] [-UserData <dir>] [-UpdateData <dir>] [-ExtraArguments '--wwe_native=true']
 #   pwsh scripts/session.ps1 input 'press A' 'wait 2000' 'press START'
 #   pwsh scripts/session.ps1 shot <stem>      window capture -> <session>/<stem>.png
 #   pwsh scripts/session.ps1 status | stop
@@ -16,6 +16,8 @@ param(
     [string[]]$ExtraArguments = @(),
     # A throwaway copy keeps the owner's profile and saves out of a test run.
     [string]$UserData = '',
+    # Another update folder (e.g. one a config mod was merged into) instead of updatedata.
+    [string]$UpdateData = '',
     # Another game exe (e.g. a build variant, or a copy with a different hash).
     [string]$Executable = ''
 )
@@ -81,7 +83,7 @@ switch ($Action) {
         $env:SDL_WINDOW_ACTIVATE_WHEN_SHOWN = '0'; $env:SDL_WINDOW_ACTIVATE_WHEN_RAISED = '0'
         $arguments = @('--gpu_plugin=xenos', '--vulkan_device=-1',
             "--render_target_path_vulkan=$RenderTargetPath",
-            "--game_data_root=$projectRoot/assets", "--update_data_root=$projectRoot/updatedata", "--user_data_root=$(if ($UserData) { $UserData } else { "$projectRoot/userdata/vulkan" })",
+            "--game_data_root=$projectRoot/assets", "--update_data_root=$(if ($UpdateData) { $UpdateData } else { "$projectRoot/updatedata" })", "--user_data_root=$(if ($UserData) { $UserData } else { "$projectRoot/userdata/vulkan" })",
             "--cache_root=$projectRoot/cache/vulkan",
             "--log_file=$log", "--log_level=$LogLevel", '--log_flush_interval=1',
             "--wwe_input_script=$inputFile", '--audio_mute=true', '--fullscreen=false')

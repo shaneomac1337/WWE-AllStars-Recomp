@@ -33,7 +33,6 @@ bool LoadGpuPluginCvars() {
 TEST_CASE("settings read once at startup apply at the next start") {
   // Read when the native renderer starts.
   CHECK(LifecycleOf("wwe_native_renderer") == Lifecycle::kRequiresRestart);
-  CHECK(LifecycleOf("wwe_native_supersample") == Lifecycle::kRequiresRestart);
   CHECK(LifecycleOf("wwe_native_resolution_scale") == Lifecycle::kRequiresRestart);
 }
 

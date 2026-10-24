@@ -60,10 +60,18 @@ _Avoid_: improvement, mod, graphics option (when meaning this)
 The Native setting for the colour curve of the game's gamma surfaces. **Original**: the Xbox 360's piecewise-linear (PWL) curve, as in Xenia and Emulated: richer, deeper shadows. **Natural**: sRGB, softer with more detail in dark areas, and an enhancement. Original is the default (owner, 2026-10-10); Emulated is always Original. Applies at the next start.
 _Avoid_: colour palette, gamma setting
 
+**Render resolution**:
+The Native setting for how many pixels the game draws: 720p, 1440p, 2160p or 2880p, which are 1x to 4x the game's own 720p. The picture is always fitted to the window: above the window's size it is filtered down to it, which gives anti-aliasing (supersampling); below it, it is scaled up and sharpened. It replaces the earlier separate Supersampling setting (owner, 2026-10-24).
+_Avoid_: render scale, supersampling (as a separate setting), internal resolution
+
+**Enhanced shadows & textures**:
+An experimental enhancement that raises the game's own shadow and texture-streaming quality values. It is on in the Ultra preset only, applies only when the game is started from the launcher, and also applies in online play, because it changes only how the match looks. A player's config mod that sets the same values wins over it (owner, 2026-10-24). Not shipped: none of its candidate values changed the picture in the staged check (graphics-remaster ticket 03, 2026-10-24).
+_Avoid_: HD shadows, graphics config mod
+
 ### Graphics presets
 
 **Graphics preset**:
-A named set of values for Native's image settings that the player picks in one step: **Low**, **Medium** or **High**. High is the defaults. The preset is never saved on its own: the game shows the preset whose values all match the current settings, and **Custom** when none does.
+A named set of values for Native's image settings that the player picks in one step: **Low**, **Medium**, **High** or **Ultra**. High is the defaults; Ultra is only ever the player's own choice. The preset is never saved on its own: the game shows the preset whose values all match the current settings, and **Custom** when none does.
 _Avoid_: quality level, graphics profile, low-end profile
 
 **Suggested preset**:

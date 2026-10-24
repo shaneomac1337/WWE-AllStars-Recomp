@@ -25,6 +25,12 @@ REXCVAR_DEFINE_BOOL(wwe_keyboard_player2, false, "WWEAllStars",
 REXCVAR_DEFINE_STRING(wwe_input_script_p2, "", "WWEAllStars",
                       "With wwe_input_script: a second scripted pad (player 2) driven from this "
                       "file, so a scripted run can have a human player 2 who stands still");
+REXCVAR_DEFINE_STRING(wwe_input_script_p3, "", "WWEAllStars",
+                      "With wwe_input_script: a third scripted pad (player 3), as "
+                      "wwe_input_script_p2");
+REXCVAR_DEFINE_STRING(wwe_input_script_p4, "", "WWEAllStars",
+                      "With wwe_input_script: a fourth scripted pad (player 4), as "
+                      "wwe_input_script_p2");
 
 namespace wwe {
 
@@ -156,11 +162,15 @@ void InstallScriptInput(rex::RuntimeConfig& config, std::function<uint64_t()> fr
                                                       frames);
     driver->Setup();
     input->AddDriver(std::move(driver));
-    if (const std::filesystem::path file2 = REXCVAR_GET(wwe_input_script_p2); !file2.empty()) {
-      auto driver2 = std::make_unique<ScriptInputDriver>(file2, ScriptInputDriver::SteadyClock,
-                                                         frames, ScriptInputDriver::kDevice2);
-      driver2->Setup();
-      input->AddDriver(std::move(driver2));
+    // Players 2-4 in order, so each pad's ordinal is its player's.
+    const std::filesystem::path others[] = {REXCVAR_GET(wwe_input_script_p2),
+                                            REXCVAR_GET(wwe_input_script_p3),
+                                            REXCVAR_GET(wwe_input_script_p4)};
+    for (uint32_t i = 0; i < std::size(others) && !others[i].empty(); ++i) {
+      auto other = std::make_unique<ScriptInputDriver>(others[i], ScriptInputDriver::SteadyClock,
+                                                       frames, ScriptInputDriver::PlayerDevice(i + 2));
+      other->Setup();
+      input->AddDriver(std::move(other));
     }
     input->SetDeviceAssignment(std::make_unique<SlotAssignment>());
     return input;

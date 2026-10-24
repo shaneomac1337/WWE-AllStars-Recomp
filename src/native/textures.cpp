@@ -39,9 +39,10 @@ REXCVAR_DEFINE_BOOL(wwe_native_async_textures, true, "WWEAllStars",
                     "Native renderer: read and convert textures on worker threads; main-scene "
                     "draws show the previous content (or nothing) for a frame or two instead of "
                     "stalling while new textures load");
-REXCVAR_DEFINE_DOUBLE(wwe_native_lod_bias, -0.5, "WWEAllStars",
-                      "Native renderer: added to the mip level of mipmapped textures; negative "
-                      "values keep distant surfaces sharper at the cost of some shimmer");
+REXCVAR_DEFINE_DOUBLE(wwe_native_lod_bias, 0.0, "WWEAllStars",
+                      "Native renderer debugging: added to the mip level of mipmapped textures; "
+                      "negative values keep distant surfaces sharper at the cost of some shimmer "
+                      "(left unset: follows the render resolution)");
 REXCVAR_DEFINE_UINT32(wwe_native_dump_texture, 0, "WWEAllStars",
                       "Native renderer debugging: write the texture at this physical address "
                       "(1: every texture) to native_texture_<address>_<size>.dds when it is "
@@ -148,6 +149,7 @@ struct State {
   uint32_t unsupported_logged = 0;
   uint32_t scale = 1;
   ColourMode colour = ColourMode::kNatural;  // fixed for the session
+  float lod_bias = 0.0f;                     // fixed for the session
   // Render thread: textures uploaded, bytes, and its own time on textures
   // (applying finished reads, reading inline, waiting for workers).
   uint64_t upload_count = 0;
@@ -365,7 +367,7 @@ uint32_t SamplerIndex(const xenos::xe_gpu_texture_fetch_t& fetch, uint32_t min_l
   sampler_info.maxLod = uint32_t(fetch.mip_filter) == 2 ? float(min_level) : float(max_level);
   if (sampler_info.maxLod > sampler_info.minLod) {
     // Vulkan guarantees |bias| <= 2 on every device.
-    sampler_info.mipLodBias = std::clamp(float(REXCVAR_GET(wwe_native_lod_bias)), -2.0f, 2.0f);
+    sampler_info.mipLodBias = std::clamp(g.lod_bias, -2.0f, 2.0f);
   }
   if (anisotropy > 1.0f) {
     // As in the emulated path, anisotropic filtering is fully linear.
@@ -646,9 +648,12 @@ FetchConstant LoadFetchConstant(const uint8_t* big_endian) {
   return fetch;
 }
 
-bool Initialize(uint32_t scale, ColourMode colour) {
+bool Initialize(uint32_t scale, ColourMode colour, float lod_bias) {
   g.scale = scale;
   g.colour = colour;
+  g.lod_bias = rex::cvar::HasNonDefaultValue("wwe_native_lod_bias")
+                   ? float(REXCVAR_GET(wwe_native_lod_bias))
+                   : lod_bias;
   g.texture_filtering = REXCVAR_GET(wwe_native_anisotropy);
   // A prepare starts no texture work, so play's count serves both.
   const uint32_t workers =

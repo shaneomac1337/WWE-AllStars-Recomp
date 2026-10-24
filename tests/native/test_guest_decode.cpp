@@ -254,17 +254,78 @@ TEST_CASE("a 2-component 16-bit position swaps x/y only, keeping w = 1") {
   CHECK(HalfSwapBit(0, 1, true, false) == 1u << 17);
 }
 
-TEST_CASE("supersampling doubles screen-sized targets only") {
-  // Screen-sized (the guest's 1280x720 scene and UI targets): 2x.
-  CHECK(TargetScale(1280, 720, 1, true) == 2);
-  // Smaller effect targets (bloom, shadow maps, attire bakes) keep their size.
-  CHECK(TargetScale(640, 360, 1, true) == 1);
-  CHECK(TargetScale(512, 512, 1, true) == 1);
-  // Without supersampling every target follows the resolution scale.
-  CHECK(TargetScale(1280, 720, 1, false) == 1);
-  CHECK(TargetScale(640, 360, 2, false) == 2);
-  // Not combined with the resolution scale: that one wins.
-  CHECK(TargetScale(1280, 720, 2, true) == 2);
+TEST_CASE("720p into a 1440p window goes to the presenter to be scaled up") {
+  const OutputPlan plan = PlanOutput(1, 2560, 1440);
+  CHECK(plan.target_scale == 1);
+  CHECK_FALSE(plan.downsample);
+  CHECK(plan.output_width == 1280);
+  CHECK(plan.output_height == 720);
+}
+
+TEST_CASE("1440p into a 1440p window is drawn at the window's size, nothing filtered") {
+  const OutputPlan plan = PlanOutput(2, 2560, 1440);
+  CHECK(plan.target_scale == 2);
+  CHECK_FALSE(plan.downsample);
+  CHECK(plan.output_width == 2560);
+  CHECK(plan.output_height == 1440);
+}
+
+TEST_CASE("2880p into a 1440p window is a box downsample") {
+  const OutputPlan plan = PlanOutput(4, 2560, 1440);
+  CHECK(plan.target_scale == 4);
+  CHECK(plan.downsample);
+  CHECK(plan.filter == DownsampleFilter::kBox);
+  CHECK(plan.halvings == 1);
+  CHECK(plan.output_width == 2560);
+  CHECK(plan.output_height == 1440);
+}
+
+TEST_CASE("2160p into a 1440p window uses the non-integer filter") {
+  const OutputPlan plan = PlanOutput(3, 2560, 1440);
+  CHECK(plan.downsample);
+  CHECK(plan.filter == DownsampleFilter::kBilinear);
+  CHECK(plan.halvings == 0);
+  CHECK(plan.output_height == 1440);
+}
+
+TEST_CASE("1440p into a 1080p window downsamples") {
+  const OutputPlan plan = PlanOutput(2, 1920, 1080);
+  CHECK(plan.downsample);
+  CHECK(plan.filter == DownsampleFilter::kBilinear);
+  CHECK(plan.output_width == 1920);
+  CHECK(plan.output_height == 1080);
+}
+
+TEST_CASE("2880p into a 1080p window halves once, then filters the rest") {
+  const OutputPlan plan = PlanOutput(4, 1920, 1080);
+  CHECK(plan.filter == DownsampleFilter::kBilinear);
+  CHECK(plan.halvings == 1);
+}
+
+TEST_CASE("a window wider than 16:9 is filtered to its 16:9 area") {
+  const OutputPlan plan = PlanOutput(3, 3440, 1440);
+  CHECK(plan.downsample);
+  CHECK(plan.output_width == 2560);
+  CHECK(plan.output_height == 1440);
+  const OutputPlan tall = PlanOutput(4, 1920, 1200);
+  CHECK(tall.output_width == 1920);
+  CHECK(tall.output_height == 1080);
+}
+
+TEST_CASE("720p is never filtered, even into a smaller window: the presenter fits it as before") {
+  const OutputPlan plan = PlanOutput(1, 960, 540);
+  CHECK_FALSE(plan.downsample);
+  CHECK(plan.output_width == 1280);
+  CHECK(plan.output_height == 720);
+}
+
+TEST_CASE("texture LOD bias follows the render resolution") {
+  CHECK(LodBiasFor(1) == 0.0f);
+  CHECK(LodBiasFor(4) == -1.0f);
+  CHECK(PlanOutput(1, 1920, 1080).lod_bias == 0.0f);
+  CHECK(PlanOutput(2, 1920, 1080).lod_bias == -0.5f);
+  CHECK(PlanOutput(3, 1920, 1080).lod_bias == -1.0f);
+  CHECK(PlanOutput(4, 1920, 1080).lod_bias == -1.0f);
 }
 
 TEST_CASE("CAS strength 0 leaves the presenter as it is; others sharpen, clamped to 1") {

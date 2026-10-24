@@ -248,16 +248,52 @@ public sealed class SettingsFile(string path, SettingsSchema schema)
         a == b || (double.TryParse(a, NumberStyles.Float, CultureInfo.InvariantCulture, out var x) &&
                    double.TryParse(b, NumberStyles.Float, CultureInfo.InvariantCulture, out var y) && x == y);
 
+    // The file's text, migrated once (MigrateText) the first time an old file is read.
     private string ReadText()
     {
+        string text;
         try
         {
-            return File.Exists(FilePath) ? File.ReadAllText(FilePath) : "";
+            text = File.Exists(FilePath) ? File.ReadAllText(FilePath) : "";
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
             throw new LauncherException($"The settings could not be read from {FilePath}: {error.Message}", error);
         }
+        var migrated = MigrateText(text);
+        if (migrated != text) Write(migrated);
+        return migrated;
+    }
+
+    /// <summary>
+    /// Graphics remaster: the Supersampling setting is gone. On means 1440p unless a render
+    /// resolution above 720p was chosen (it won then too); Off keeps 720p, written out because
+    /// the default is 1440p now. As the game's <c>MigrateSettingsText</c>.
+    /// </summary>
+    internal static string MigrateText(string text)
+    {
+        const string supersampleKey = "wwe_native_supersample", scaleKey = "wwe_native_resolution_scale";
+        string? supersample = null, scale = null;
+        var kept = new StringBuilder();
+        var start = 0;
+        while (start < text.Length)
+        {
+            var newline = text.IndexOf('\n', start);
+            var end = newline < 0 ? text.Length : newline + 1;
+            var current = text[start..end];
+            var body = current.TrimEnd('\r', '\n');
+            var key = LineKey(body);
+            if (key == supersampleKey && supersample is null)
+                supersample = LiteralValue(body[(body.IndexOf('=') + 1)..]);
+            else
+                kept.Append(current);
+            if (key == scaleKey && scale is null) scale = LiteralValue(body[(body.IndexOf('=') + 1)..]);
+            start = end;
+        }
+        if (supersample is null) return text;
+        var oldScale = Math.Max(int.TryParse(scale, NumberStyles.Integer, CultureInfo.InvariantCulture, out var s) ? s : 1, 1);
+        var newScale = supersample == "true" && oldScale == 1 ? 2 : oldScale;
+        return SetTomlKey(kept.ToString(), scaleKey, newScale.ToString(CultureInfo.InvariantCulture));
     }
 
     private void Write(string text)

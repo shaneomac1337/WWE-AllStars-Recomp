@@ -16,14 +16,13 @@ namespace wwe::settings {
 
 // The Graphics preset's members and value sets (low-end-preset spec,
 // "Presets"): the one place the page, the launcher (through the schema export)
-// and the tests read them. High is the cvar defaults. Render resolution above
-// 720p is never part of a preset; it makes the row show Custom.
+// and the tests read them. High is the cvar defaults (graphics-remaster spec).
 inline Group GraphicsPresets() {
-  return {.members = {"wwe_native_supersample", "wwe_native_resolution_scale", "wwe_native_cas",
-                      "wwe_native_anisotropy"},
-          .presets = {{"low", "Low", {"false", "1", "0", "2"}},
-                      {"medium", "Medium", {"false", "1", "0.5", "3"}},
-                      {"high", "High", {"true", "1", "0.5", "3"}}}};
+  return {.members = {"wwe_native_resolution_scale", "wwe_native_cas", "wwe_native_anisotropy"},
+          .presets = {{"low", "Low", {"1", "0", "2"}},
+                      {"medium", "Medium", {"1", "0.5", "3"}},
+                      {"high", "High", {"2", "0.5", "3"}},
+                      {"ultra", "Ultra", {"3", "0.25", "5"}}}};
 }
 
 // What each preset turns on and off, from the table: per preset, the members
@@ -101,17 +100,14 @@ inline std::vector<Setting> PlayerSettings() {
        "Native draws the game directly with Vulkan. Emulated runs the Xbox 360 GPU in emulation: "
        "slower, but the reference if Native shows a problem.",
        /*startup=*/true},
-      {"wwe_native_supersample", "Supersampling", "GRAPHICS", {{"true", "On"}, {"false", "Off"}},
-       "Renders at twice the width and height and scales down, smoothing jagged edges. Native "
-       "only.",
-       /*startup=*/true, /*native_only=*/true},
       {"wwe_native_cas", "Sharpening", "GRAPHICS",
        {{"0", "Off"}, {"0.25", "Low"}, {"0.5", "Medium"}, {"1", "High"}},
        "Sharpens the final picture. Native only.", /*startup=*/false, /*native_only=*/true},
       {"wwe_native_resolution_scale", "Render resolution", "GRAPHICS",
-       {{"1", "720p"}, {"2", "1440p"}, {"3", "2160p"}},
-       "Renders at a multiple of the game's 720p for a sharper picture on a strong GPU. Native "
-       "only; not combined with supersampling.",
+       {{"1", "720p"}, {"2", "1440p"}, {"3", "2160p"}, {"4", "2880p"}},
+       "The resolution the game draws at. The picture is fitted to your window: a resolution "
+       "above it is filtered down and smooths jagged edges, one below it is scaled up and "
+       "sharpened. Higher needs a stronger GPU. Native only.",
        /*startup=*/true, /*native_only=*/true},
       {"wwe_native_anisotropy", "Texture filtering", "GRAPHICS",
        {{"0", "Off"}, {"2", "2x"}, {"3", "4x"}, {"4", "8x"}, {"5", "16x"}},

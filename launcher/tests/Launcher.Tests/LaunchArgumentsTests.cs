@@ -9,7 +9,7 @@ public class LaunchArgumentsTests
     private static readonly string[] PlayerSettings =
     [
         "fullscreen", "present_vsync", "vblank_follows_display", "wwe_native_renderer",
-        "wwe_native_supersample", "wwe_native_cas", "wwe_native_resolution_scale",
+        "wwe_native_cas", "wwe_native_resolution_scale",
         "wwe_native_anisotropy", "wwe_native_color_mode", "wwe_60fps_entrances", "wwe_120fps_matches", "audio_mute", "wwe_vibration_mode", "wwe_vibration_strength",
         "vulkan_device", "user_language",
     ];

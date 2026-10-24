@@ -59,7 +59,7 @@ Post-v1, in this order:
 2. 60 fps, after the game's timing model is understood.
 3. Mod and asset hooks.
 
-Ultrawide and HD texture packs are out of scope.
+Ultrawide is out of scope. HD texture packs came into scope in ADR-0028.
 
 ## Ground rules
 
