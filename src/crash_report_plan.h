@@ -21,6 +21,7 @@ struct CrashFacts {
   std::string driver_version;  // empty before the GPU is known
   uint32_t exception_status = 0;
   std::string gpu_failure;     // "<VkResult> (<call>)" for a GPU failure, else empty
+  std::string fault_finder;    // FaultFinder::Note of a GPU failure, else empty
   std::string stamp;           // local time, YYYYMMDD-HHMMSS
   std::filesystem::path logs_folder;
   std::filesystem::path session_log;    // empty without one
@@ -108,11 +109,12 @@ inline CrashReportPlan PlanCrashReport(const CrashFacts& facts) {
   plan.manifest = fmt::format(
       "WWE All Stars Recomp crash report\n"
       "version: {}\ncommit: {}\nrenderer: {}\ngpu: {}\ndriver: {}\n"
-      "reason: {}\nsession log: {}\nsettings file: {}\nlauncher log: {}\n",
+      "reason: {}\n{}session log: {}\nsettings file: {}\nlauncher log: {}\n",
       or_unknown(facts.version), or_unknown(facts.commit), or_unknown(facts.renderer),
       or_unknown(facts.gpu_name), or_unknown(facts.driver_version),
       facts.gpu_failure.empty() ? CrashReason(facts.exception_status)
                                 : "gpu failure " + facts.gpu_failure,
+      facts.fault_finder.empty() ? "" : "fault finder: " + facts.fault_finder + "\n",
       log_name, settings_name, launcher_log_name);
   return plan;
 }

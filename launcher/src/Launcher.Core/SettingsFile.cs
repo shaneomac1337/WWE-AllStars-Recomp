@@ -129,13 +129,7 @@ public sealed class SettingsFile(string path, SettingsSchema schema)
     /// </summary>
     public IReadOnlyDictionary<string, string> Read()
     {
-        var saved = new Dictionary<string, string>();
-        foreach (var line in ReadText().Split('\n'))
-        {
-            var body = line.TrimEnd('\r');
-            if (LineKey(body) is { } key && !saved.ContainsKey(key))
-                saved[key] = LiteralValue(body[(body.IndexOf('=') + 1)..]);
-        }
+        var saved = SavedValues();
         var values = new Dictionary<string, string>();
         foreach (var setting in Saved)
         {
@@ -207,6 +201,50 @@ public sealed class SettingsFile(string path, SettingsSchema schema)
     {
         var setting = Shown(key);
         Write(SetTomlKey(ReadText(), key, Literal(setting, setting.Default)));
+    }
+
+    /// <summary>
+    /// Each keyboard input's binding, by setting key (<see cref="KeyBinds.Inputs"/>): as saved, or
+    /// the default when the file has no line for it.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> ReadKeyBinds()
+    {
+        var saved = SavedValues();
+        return KeyBinds.Inputs.ToDictionary(i => i.Key, i => saved.GetValueOrDefault(i.Key, i.Default));
+    }
+
+    /// <summary>Saves one keyboard input's binding (a <see cref="KeyBinds"/> value); other lines stay.</summary>
+    public void SetKeyBind(string key, string value) => SetKeyBinds(new Dictionary<string, string> { [key] = value });
+
+    /// <summary>Saves several keyboard bindings in one write (a key moved between inputs); other lines stay.</summary>
+    public void SetKeyBinds(IReadOnlyDictionary<string, string> values)
+    {
+        if (values.Keys.FirstOrDefault(key => KeyBinds.Find(key) is null) is { } unknown)
+            throw new LauncherException($"The launcher does not change the setting '{unknown}'.");
+        var text = ReadText();
+        foreach (var (key, value) in values)
+            text = SetTomlKey(text, key, StringLiteral(value));
+        Write(text);
+    }
+
+    /// <summary>Puts every keyboard binding back to its default by removing its lines; other lines stay.</summary>
+    public void ResetKeyBinds()
+    {
+        var kept = ReadText().Split('\n').Where(line => LineKey(line.TrimEnd('\r')) is not { } key || KeyBinds.Find(key) is null);
+        Write(string.Join('\n', kept));
+    }
+
+    // Each key's first saved value.
+    private Dictionary<string, string> SavedValues()
+    {
+        var saved = new Dictionary<string, string>();
+        foreach (var line in ReadText().Split('\n'))
+        {
+            var body = line.TrimEnd('\r');
+            if (LineKey(body) is { } key && !saved.ContainsKey(key))
+                saved[key] = LiteralValue(body[(body.IndexOf('=') + 1)..]);
+        }
+        return saved;
     }
 
     /// <summary>
@@ -321,9 +359,11 @@ public sealed class SettingsFile(string path, SettingsSchema schema)
     /// <summary>The value as a TOML literal: strings quoted and escaped, numbers and booleans bare.</summary>
     private static string Literal(SchemaSetting setting, string value)
     {
-        if (setting.Type != "string") return value;
-        return "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+        return setting.Type == "string" ? StringLiteral(value) : value;
     }
+
+    private static string StringLiteral(string value) =>
+        "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
 
     /// <summary>The value a TOML literal holds: a basic string unquoted, anything else up to a comment.</summary>
     private static string LiteralValue(string literal)

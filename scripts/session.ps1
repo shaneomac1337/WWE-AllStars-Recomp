@@ -41,14 +41,19 @@ public static class SessionWin {
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  [DllImport("user32.dll")] public static extern int GetSystemMetrics(int index);
 }
 '@
 [void][SessionWin]::SetProcessDPIAware()
 
 # Off-screen without focus: SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE, then
 # SW_SHOWNOACTIVATE, which also restores a minimized window so it keeps rendering.
+# Left of the whole virtual desktop (SM_XVIRTUALSCREEN), so a monitor left of the main one
+# never shows it.
 function Set-Parked([IntPtr]$h) {
-    [void][SessionWin]::SetWindowPos($h, [IntPtr]::Zero, -4000, 0, 0, 0, 0x1 -bor 0x4 -bor 0x10)
+    $r = [SessionWin+RECT]::new(); [void][SessionWin]::GetWindowRect($h, [ref]$r)
+    $x = [SessionWin]::GetSystemMetrics(76) - ($r.R - $r.L) - 100
+    [void][SessionWin]::SetWindowPos($h, [IntPtr]::Zero, $x, 0, 0, 0, 0x1 -bor 0x4 -bor 0x10)
     [void][SessionWin]::ShowWindow($h, 4)
 }
 
@@ -109,6 +114,21 @@ switch ($Action) {
             Set-Parked $p.MainWindowHandle
         }
         @{ pid = $p.Id; log = $log; started = (Get-Date -Format o) } | ConvertTo-Json | Set-Content $state
+        # A native run that fell back to Emulated shows a black window and measures the wrong
+        # renderer: close it at once and keep the log (native_renderer.cpp logs either line).
+        if (!($ExtraArguments -contains '--wwe_native_renderer=false')) {
+            for ($t = 0; $t -lt 600 -and !$p.HasExited; $t++) {
+                $line = Select-String -Path $log -Pattern 'native renderer: enabled|running on Emulated' -ErrorAction SilentlyContinue |
+                    Select-Object -First 1
+                if ($line) { break }
+                Start-Sleep -Milliseconds 100
+            }
+            if ($line -and $line.Line -match 'running on Emulated') {
+                Stop-Session
+                throw "The native renderer fell back to Emulated; the game is closed. $($line.Line) Log: $log"
+            }
+            if (!$line) { Write-Warning "No native renderer line in 60 s. Log: $log" }
+        }
         "started pid $($p.Id), session $dir"
     }
     'input' {

@@ -44,6 +44,7 @@
 #include "native/texture_layout.h"
 #include "frame_capture.h"
 #include "native/draw_skips.h"
+#include "native/fault_finder.h"
 #include "native/frame_dumps.h"
 #include "native/renderer_fallback.h"
 #include "native/gpu_failure.h"
@@ -96,6 +97,16 @@ REXCVAR_DEFINE_BOOL(wwe_native_debug_no_blend, false, "WWEAllStars",
 REXCVAR_DEFINE_BOOL(wwe_native_debug_fail_submit, false, "WWEAllStars",
                     "Native renderer debugging: fail the next queue submit with "
                     "VK_ERROR_DEVICE_LOST, which ends the session as a GPU failure");
+// intel-fault-finder ticket 01: names the draw a lost device was lost in.
+REXCVAR_DEFINE_BOOL(wwe_native_debug_fault_finder, false, "WWEAllStars",
+                    "Native renderer debugging: for the first frames that draw, submit and wait "
+                    "after every draw and log it, so a GPU failure names the draw that faulted");
+REXCVAR_DEFINE_INT32(wwe_native_debug_fault_finder_frames, 3, "WWEAllStars",
+                     "Native renderer debugging: how many frames that draw the fault finder "
+                     "covers");
+REXCVAR_DEFINE_UINT32(wwe_native_debug_fail_draw, 0, "WWEAllStars",
+                      "Native renderer debugging: with the fault finder on, fail the fence wait "
+                      "after the Nth draw it logs (1-based) with VK_ERROR_DEVICE_LOST");
 REXCVAR_DEFINE_UINT64(wwe_native_trace_ps, 0, "WWEAllStars",
                       "Native renderer debugging: in traced frames, dump the constants of draws "
                       "using this pixel shader hash");
@@ -425,6 +436,11 @@ struct State {
   std::mutex skips_mutex;
   DrawSkips skips;
   Fallback fallback = Fallback::kNone;
+  // --wwe_native_debug_fault_finder; the mutex lets a GPU failure on another
+  // thread read its note.
+  std::mutex fault_finder_mutex;
+  FaultFinder fault_finder{0};
+  uint32_t fault_finder_draws = 0;
   // The VkResult of a GPU failure, for the session report; 0 if none.
   std::atomic<int32_t> gpu_failure{0};
   // What the current frame spent its time on, logged when it runs long.
@@ -902,6 +918,45 @@ void SkipDraw(Skip reason, uint64_t key) {
   g.skips.Count(reason, g.frame, key);
 }
 
+// Starts the slot's command buffers after its fence has signalled; nothing
+// is bound in them yet.
+void OpenCommandBuffers(FrameSlot& slot) {
+  const VulkanDevice::Functions& dfn = *g_vk.dfn;
+  dfn.vkResetCommandPool(g_vk.vk_device, slot.command_pool, 0);
+  VkCommandBufferBeginInfo begin_info = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+  begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+  dfn.vkBeginCommandBuffer(slot.upload_cb, &begin_info);
+  dfn.vkBeginCommandBuffer(slot.main_cb, &begin_info);
+  BindDescriptorHeaps(slot.main_cb);
+  g.last_push = {};
+  g.bound_pipeline = VK_NULL_HANDLE;
+  g.dynamic_set = false;
+}
+
+// Ends the slot's command buffers and submits them, uploads first, signalling
+// its fence.
+void SubmitCommandBuffers(FrameSlot& slot) {
+  const VulkanDevice::Functions& dfn = *g_vk.dfn;
+  geometry::EndFrame(slot.upload_cb);
+  dfn.vkEndCommandBuffer(slot.upload_cb);
+  dfn.vkEndCommandBuffer(slot.main_cb);
+  const VkCommandBuffer command_buffers[2] = {slot.upload_cb, slot.main_cb};
+  VkSubmitInfo submit_info = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
+  submit_info.commandBufferCount = 2;
+  submit_info.pCommandBuffers = command_buffers;
+  VkResult submitted;
+  {
+    VulkanDevice::Queue::Acquisition queue =
+        g.device->AcquireQueue(g.device->queue_family_graphics_compute(), 0);
+    submitted = REXCVAR_GET(wwe_native_debug_fail_submit)
+                    ? VK_ERROR_DEVICE_LOST
+                    : dfn.vkQueueSubmit(queue.queue(), 1, &submit_info, slot.fence);
+  }
+  if (submitted != VK_SUCCESS) {
+    EndSessionWithGpuFailure(submitted, "vkQueueSubmit");
+  }
+}
+
 void BeginFrameIfNeeded() {
   if (g.recording) {
     return;
@@ -927,21 +982,13 @@ void BeginFrameIfNeeded() {
   if (g.frame % 300 == 0) {
     textures::EvictUnused(g.frame);
   }
-  dfn.vkResetCommandPool(g_vk.vk_device, slot.command_pool, 0);
-  VkCommandBufferBeginInfo begin_info = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-  begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-  dfn.vkBeginCommandBuffer(slot.upload_cb, &begin_info);
-  dfn.vkBeginCommandBuffer(slot.main_cb, &begin_info);
+  OpenCommandBuffers(slot);
   BeginGpuTimerFrame(slot_index, slot.upload_cb);
   BeginUploadFrame(slot_index);
   g.vertex_constants.address = g.pixel_constants.address = g.shared_address = 0;
-  g.last_push = {};
   g.zeros = {};
-  BindDescriptorHeaps(slot.main_cb);
   g.slot = &slot;
   g.recording = true;
-  g.bound_pipeline = VK_NULL_HANDLE;
-  g.dynamic_set = false;
 }
 
 void EndRendering() {
@@ -950,6 +997,69 @@ void EndRendering() {
     g.rendering = false;
     EndWork();
   }
+}
+
+// The fault finder (--wwe_native_debug_fault_finder): submits the frame so
+// far after a draw and waits for it, then reopens the frame's command
+// buffers. The next draw begins rendering again with its targets loaded.
+void SubmitDrawAndWait(const uint8_t* d3d, const VertexLayout& layout,
+                       const uint32_t strides[kMaxStreams]) {
+  if (!g.fault_finder.Active(g.frame)) {
+    return;
+  }
+  FaultDraw draw;
+  draw.frame = g.frame;
+  draw.pass = PassName({g.active_color->width, g.active_color->height, g.active_color->format,
+                        g.active_gamma, g.active_depth != nullptr});
+  draw.vertex_shader = shader_library::Hash(LoadBE32(d3d + kDeviceVertexShader));
+  draw.pixel_shader = shader_library::Hash(LoadBE32(d3d + kDevicePixelShader));
+  draw.vertex_format = "strides";
+  for (uint32_t stream = 0; stream < kMaxStreams; ++stream) {
+    if (layout.stream_mask & (1u << stream)) {
+      draw.vertex_format += fmt::format(" s{}={}", stream, strides[stream]);
+    }
+  }
+  for (uint32_t i = 0; i < layout.attribute_count; ++i) {
+    const VertexAttribute& a = layout.attributes[i];
+    draw.vertex_format +=
+        fmt::format(" loc{}=fmt{}@s{}+{}", a.location, uint32_t(a.format), a.stream, a.offset);
+  }
+  std::string line;
+  {
+    std::lock_guard lock(g.fault_finder_mutex);
+    line = g.fault_finder.Begin(std::move(draw));
+  }
+  REXLOG_INFO("{}", line);
+  // The line survives a driver that ends the process.
+  rex::FlushLogging();
+
+  const VulkanDevice::Functions& dfn = *g_vk.dfn;
+  FrameSlot& slot = *g.slot;
+  EndRendering();
+  SubmitCommandBuffers(slot);
+  VkResult waited = dfn.vkWaitForFences(g_vk.vk_device, 1, &slot.fence, VK_TRUE, UINT64_MAX);
+  if (++g.fault_finder_draws == REXCVAR_GET(wwe_native_debug_fail_draw)) {
+    waited = VK_ERROR_DEVICE_LOST;
+  }
+  if (waited < 0) {
+    EndSessionWithGpuFailure(waited, "vkWaitForFences");
+  }
+  {
+    std::lock_guard lock(g.fault_finder_mutex);
+    line = g.fault_finder.Finish();
+  }
+  REXLOG_INFO("{}", line);
+
+  dfn.vkResetFences(g_vk.vk_device, 1, &slot.fence);
+  OpenCommandBuffers(slot);
+  // The fence wait orders the two submissions; this barrier makes the
+  // earlier one's writes visible to the rest of the frame.
+  VkMemoryBarrier barrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+  barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
+  barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+  dfn.vkCmdPipelineBarrier(slot.upload_cb, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                           VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &barrier, 0, nullptr, 0,
+                           nullptr);
 }
 
 // width and height are the guest size.
@@ -1492,6 +1602,12 @@ void Configure(rex::Runtime* runtime) {
   }
   InitializeGpuTimer();
   InitializeDebugLabels();
+  if (REXCVAR_GET(wwe_native_debug_fault_finder)) {
+    const uint32_t frames =
+        uint32_t(std::max(REXCVAR_GET(wwe_native_debug_fault_finder_frames), 1));
+    g.fault_finder = FaultFinder(frames);
+    REXLOG_INFO("native fault finder: on for the first {} frames that draw", frames);
+  }
   shader_library::Initialize(g.device, std::move(pack.pack));
   pipelines::Initialize(converter_id, runtime->cache_root(), g.colour);
   if (!pipelines::PrepareMode()) {
@@ -1653,8 +1769,16 @@ void OnExit() {
     for (;;) std::this_thread::sleep_for(std::chrono::hours(1));
   }
   REXLOG_ERROR("{}", GpuFailureLine(int32_t(result), call));
+  std::string fault_finder;
+  {
+    std::lock_guard lock(g.fault_finder_mutex);
+    fault_finder = g.fault_finder.Note();
+  }
+  if (!fault_finder.empty()) {
+    REXLOG_ERROR("native fault finder: {}", fault_finder);
+  }
   OnExit();
-  wwe::crash::WriteGpuFailureReport(GpuFailureReason(int32_t(result), call));
+  wwe::crash::WriteGpuFailureReport(GpuFailureReason(int32_t(result), call), fault_finder);
   rex::FlushLogging();
   std::_Exit(kGpuFailureExitCode);
 }
@@ -2269,7 +2393,8 @@ void OnDrawVertices(const uint8_t* base, uint32_t device, uint32_t primitive,
   }
   uint32_t strides[kMaxStreams] = {stride};
   const uint8_t* d3d = base + device;
-  if (!PrepareDraw(base, d3d, topology, strides, true)) {
+  const VertexLayout* layout = PrepareDraw(base, d3d, topology, strides, true);
+  if (!layout) {
     return;
   }
   const uint32_t host_stride = strides[0];
@@ -2324,6 +2449,7 @@ void OnDrawVertices(const uint8_t* base, uint32_t device, uint32_t primitive,
     dfn.vkCmdDraw(cb, vertex_count, 1, 0, 0);
   }
   ++g.stats.drawn;
+  SubmitDrawAndWait(d3d, *layout, strides);
   TRACE("draw vertices rt_fmt {} prim {} count {} stride {} blend {:08X} depthctl {:08X} "
         "colorctl {:08X} "
         "mask {:08X} target {}x{} vs {:016x} ps {:016x}",
@@ -2383,6 +2509,7 @@ void OnDrawNonIndexed(const uint8_t* base, uint32_t device, uint32_t primitive,
     dfn.vkCmdDraw(cb, vertex_count, 1, 0, 0);
   }
   ++g.stats.drawn_non_indexed;
+  SubmitDrawAndWait(d3d, *layout, strides);
   TRACE("draw non-indexed prim {} start {} count {} vs {:016x} ps {:016x}", primitive,
         start_vertex, vertex_count, shader_library::Hash(LoadBE32(d3d + kDeviceVertexShader)),
         shader_library::Hash(LoadBE32(d3d + kDevicePixelShader)));
@@ -2451,6 +2578,7 @@ void OnDrawIndexed(const uint8_t* base, uint32_t device, uint32_t primitive,
                            VK_INDEX_TYPE_UINT32);
   dfn.vkCmdDrawIndexed(cb, indices.count, 1, 0, 0, 0);
   ++g.stats.drawn_indexed;
+  SubmitDrawAndWait(d3d, *layout, strides);
   TRACE("draw indexed prim {} indices {} blend {:08X} depthctl {:08X} rt_fmt {} ps {:016x}",
         primitive, index_count, ReadReg(d3d, RB_BLENDCONTROL0), ReadReg(d3d, RB_DEPTHCONTROL),
         (ReadReg(d3d, RB_COLOR_INFO) >> 16) & 0xF,
@@ -2883,26 +3011,8 @@ void OnPresent(const uint8_t* base, uint32_t device, uint32_t front_buffer) {
                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   EndWork();
   EndGpuTimerFrame();
-  geometry::EndFrame(slot.upload_cb);
-  dfn.vkEndCommandBuffer(slot.upload_cb);
-  dfn.vkEndCommandBuffer(slot.main_cb);
-
-  const VkCommandBuffer command_buffers[2] = {slot.upload_cb, slot.main_cb};
-  VkSubmitInfo submit_info = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
-  submit_info.commandBufferCount = 2;
-  submit_info.pCommandBuffers = command_buffers;
   g.recording = false;
-  VkResult submitted;
-  {
-    VulkanDevice::Queue::Acquisition queue =
-        g.device->AcquireQueue(g.device->queue_family_graphics_compute(), 0);
-    submitted = REXCVAR_GET(wwe_native_debug_fail_submit)
-                    ? VK_ERROR_DEVICE_LOST
-                    : dfn.vkQueueSubmit(queue.queue(), 1, &submit_info, slot.fence);
-  }
-  if (submitted != VK_SUCCESS) {
-    EndSessionWithGpuFailure(submitted, "vkQueueSubmit");
-  }
+  SubmitCommandBuffers(slot);
 
   if (dump_buffer) {
     WriteFrameDump(dump_buffer, dump_memory, slot.fence, dump_path, slot.width, slot.height);

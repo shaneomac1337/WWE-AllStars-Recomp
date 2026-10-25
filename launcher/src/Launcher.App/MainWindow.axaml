@@ -284,6 +284,36 @@
           </ScrollViewer>
         </DockPanel>
       </Border>
+      <!-- The keyboard's bindings (keyboard spec, Keys page), opened from the Keyboard row. -->
+      <Border x:Name="KeysView" IsVisible="False" Width="600" HorizontalAlignment="Right"
+              Background="{DynamicResource PanelBrush}" BorderBrush="{StaticResource BlueBrush}"
+              BorderThickness="3,0,0,0">
+        <DockPanel Margin="28,20,28,24">
+          <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto,Auto" Margin="0,12,0,0">
+            <TextBlock x:Name="KeysStatus" Grid.Column="0" Classes="small" VerticalAlignment="Center"
+                       TextWrapping="Wrap" />
+            <Button x:Name="ResetKeysButton" Grid.Column="1" Classes="secondary" Content="Reset keys"
+                    Margin="0,0,10,0" />
+            <Button x:Name="CloseKeysButton" Grid.Column="2" Classes="secondary" Content="Back" />
+          </Grid>
+          <!-- A key another input has: Move takes it off that input, Cancel changes nothing. -->
+          <Border x:Name="KeysConflict" DockPanel.Dock="Bottom" IsVisible="False" Margin="0,10,0,0" Padding="12,10"
+                  BorderBrush="{StaticResource GoldBrush}" BorderThickness="1" CornerRadius="4">
+            <Grid ColumnDefinitions="*,Auto,Auto">
+              <TextBlock x:Name="KeysConflictText" Grid.Column="0" TextWrapping="Wrap" VerticalAlignment="Center"
+                         Foreground="White" Margin="0,0,10,0" />
+              <Button x:Name="MoveKeyButton" Grid.Column="1" Content="Move it" Margin="0,0,8,0" />
+              <Button x:Name="KeepKeyButton" Grid.Column="2" Classes="secondary" Content="Cancel" />
+            </Grid>
+          </Border>
+          <TextBlock DockPanel.Dock="Top" Classes="display" Text="KEYS" FontSize="44" />
+          <TextBlock DockPanel.Dock="Top" Classes="small" TextWrapping="Wrap" Margin="0,0,0,8"
+                     Text="The keys that act as player 1's controller. Click an input, then press its new key. The game uses them from its next start." />
+          <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+            <StackPanel x:Name="KeysList" Spacing="2" Margin="0,0,16,0" />
+          </ScrollViewer>
+        </DockPanel>
+      </Border>
       <Border x:Name="DlcView" IsVisible="False" Width="560" HorizontalAlignment="Right" DragDrop.AllowDrop="True"
               Background="{DynamicResource PanelBrush}" BorderBrush="{StaticResource GoldBrush}"
               BorderThickness="3,0,0,0">

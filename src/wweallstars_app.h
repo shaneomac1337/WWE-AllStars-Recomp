@@ -29,9 +29,11 @@
 #include "settings/config_file.h"
 #include "settings/exit_row.h"
 #include "settings/gpu_list.h"
+#include "settings/port_defaults.h"
 #include "settings/schema.h"
 #include "settings/settings_page.h"
 #include "startup_paths.h"
+#include "version_line.h"
 #include "vibration/force_feedback.h"
 #include "vibration/mode.h"
 #include "xma_stats.h"
@@ -47,6 +49,7 @@ class WweAllStarsApp : public rex::ReXApp {
   static std::unique_ptr<rex::ui::WindowedApp> Create(
       rex::ui::WindowedAppContext& ctx) {
     wwe::crash::Install();
+    wwe::settings::ApplyPortDefaults();
     // The launcher's headless export, before any window or the runtime.
     wwe::settings::PrintSchemaAndExitIfAsked();
     wwe::settings::PrintGpusAndExitIfAsked();
@@ -113,6 +116,8 @@ class WweAllStarsApp : public rex::ReXApp {
   // The PC SETTINGS page's own file, over the main config (command-line flags
   // still win), before anything reads the settings.
   void OnPostInitLogging() override {
+    // First, so every log says which build wrote it (#9 mixed two releases).
+    REXLOG_INFO("{}", wwe::VersionLine(WWE_VERSION, WWE_COMMIT));
     wwe::settings::LoadSettingsFile(config_path_, user_data_folder_);
   }
 

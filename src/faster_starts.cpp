@@ -25,6 +25,7 @@
 
 #include "faster_starts.h"
 #include "guest_memory.h"
+#include "guest_names.h"
 
 REXCVAR_DECLARE(bool, wwe_short_loading_screens);  // settings_cvars.cpp
 REXCVAR_DEFINE_BOOL(wwe_faster_starts_trace, false, "WWEAllStars",
@@ -36,63 +37,20 @@ REXCVAR_DEFINE_BOOL(wwe_faster_starts_assume_online, false, "WWEAllStars",
 
 namespace {
 
+using wwe::guest::ClassName;
+using wwe::guest::kHeapStart;
+using wwe::guest::kOuterOffset;
 using wwe::guest::LoadU32;
+using wwe::guest::ObjectName;
+using wwe::guest::PackageOf;
 using wwe::guest::StoreU32;
 
-// GNames (the FName constructor 0x827522A0): a TArray of entry pointers at 0x83734554,
-// its count after it; an entry's UTF-16 text starts at +0x10.
-constexpr uint32_t kNamesData = 0x83734554;
-constexpr uint32_t kNamesCount = 0x83734558;
-// UObject: Outer at +0x20, Name (an FName's index, its number after it) at +0x24, Class at
-// +0x2C. Read from live Matinees: SeqAct_Cinema_0 < Main_Sequence < PersistentLevel <
-// TheWorld < Intro_Standard.
-constexpr uint32_t kOuterOffset = 0x20;
-constexpr uint32_t kNameOffset = 0x24;
-constexpr uint32_t kClassOffset = 0x2C;
 // A Net-Z session runs (game_tick_log.cpp, At120Allowed).
 constexpr uint32_t kNetZSessionActive = 0x83740590;
-// Heap objects live at 0x40000000 and up.
-constexpr uint32_t kHeapStart = 0x40000000;
-
-std::string NameText(const uint8_t* base, uint32_t index) {
-  if (index >= LoadU32(base, kNamesCount)) return {};
-  const uint32_t entry = LoadU32(base, LoadU32(base, kNamesData) + 4 * index);
-  if (entry < kHeapStart) return {};
-  std::string text;
-  for (uint32_t i = 0; i < 64; ++i) {
-    const uint32_t at = entry + 0x10 + 2 * i;
-    const uint16_t c = uint16_t(base[at] << 8 | base[at + 1]);
-    if (c == 0) break;
-    text += c < 0x80 ? char(c) : '?';
-  }
-  return text;
-}
-
-// The name of the package `object` was loaded from: its outermost Outer.
-std::string PackageOf(const uint8_t* base, uint32_t object) {
-  for (int depth = 0; depth < 16; ++depth) {
-    const uint32_t outer = LoadU32(base, object + kOuterOffset);
-    if (outer < kHeapStart) return NameText(base, LoadU32(base, object + kNameOffset));
-    object = outer;
-  }
-  return {};
-}
 
 // A Net-Z session is up, or a developer run says to act as if one were.
 bool Online(const uint8_t* base) {
   return LoadU32(base, kNetZSessionActive) != 0 || REXCVAR_GET(wwe_faster_starts_assume_online);
-}
-
-// The UObject's name, as UE3 prints it (Name_N for a numbered FName).
-std::string ObjectName(const uint8_t* base, uint32_t object) {
-  const uint32_t number = LoadU32(base, object + kNameOffset + 4);
-  return NameText(base, LoadU32(base, object + kNameOffset)) +
-         (number ? "_" + std::to_string(number - 1) : "");
-}
-
-std::string ClassName(const uint8_t* base, uint32_t object) {
-  const uint32_t cls = LoadU32(base, object + kClassOffset);
-  return cls >= kHeapStart ? ObjectName(base, cls) : std::string();
 }
 
 // Where a Kismet op sits: its package, the sequence that holds it, its own name and class.

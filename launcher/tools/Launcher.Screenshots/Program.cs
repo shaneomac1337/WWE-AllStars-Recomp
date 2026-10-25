@@ -3,16 +3,20 @@
 //
 //   dotnet run --project tools/Launcher.Screenshots -- <output folder> [<nxeart>]
 //
-// Writes welcome, upgrade (0.9.0 install without Title Update 2), home, settings, dlc and about at
+// Writes welcome, upgrade (0.9.0 install without Title Update 2), home, settings, keys (normal,
+// a key another input has, a reserved key), dlc and about at
 // 100 % and 200 % scaling. With an nxeart (the
 // developer's own, e.g. assets/nxeart) the home screen shows its key art; without one it shows
 // the typographic fallback. The output holds game art then, so keep it in ignored out/.
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Automation;
 using Avalonia.Headless;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using WweAllStars.Launcher;
 using WweAllStars.Launcher.Core;
 
@@ -43,6 +47,28 @@ try
     var home = NewRoot("home", setUp: true);
     Capture(home, "home", _ => { });
     Capture(home, "settings", window => Click(window, "SettingsButton"));
+    // Settings scrolled to the Keyboard row and its Keys button.
+    Capture(home, "settings-keyboard", window =>
+    {
+        Click(window, "SettingsButton");
+        Dispatcher.UIThread.RunJobs();
+        Named(window, "Change the keyboard's keys").BringIntoView();
+        Dispatcher.UIThread.RunJobs();
+    });
+    Capture(home, "keys", OpenKeys);
+    // A starts waiting for a key; J is X's, so the page asks whether to move it.
+    Capture(home, "keys-move", window =>
+    {
+        OpenKeys(window);
+        ClickNamed(window, "A key");
+        PressKey(window, Key.J, PhysicalKey.J);
+    });
+    Capture(home, "keys-reserved", window =>
+    {
+        OpenKeys(window);
+        ClickNamed(window, "B key");
+        PressKey(window, Key.F4, PhysicalKey.F4);
+    });
     Capture(home, "about", window => Click(window, "AboutButton"));
     // The DLC page with a stand-in Pack 1 (an empty folder named like it: no game data).
     var pack = Path.Combine(new DlcLibrary(new PortableLayout(home).UserDataDirectory).ContentDirectory, DlcLibrary.Pack1FileName, "Phase1");
@@ -123,3 +149,22 @@ static void WriteStandInShaderPack(string cacheDirectory)
 
 static void Click(Window window, string button) =>
     window.FindControl<Button>(button)!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+static Button Named(Window window, string name) =>
+    window.GetVisualDescendants().OfType<Button>().First(b => AutomationProperties.GetName(b) == name);
+
+static void ClickNamed(Window window, string name) => Named(window, name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+static void OpenKeys(MainWindow window)
+{
+    Click(window, "SettingsButton");
+    Dispatcher.UIThread.RunJobs();
+    ClickNamed(window, "Change the keyboard's keys");
+    Dispatcher.UIThread.RunJobs();
+}
+
+static void PressKey(Window window, Key key, PhysicalKey physical) =>
+    window.RaiseEvent(new KeyEventArgs
+    {
+        RoutedEvent = InputElement.KeyDownEvent, Key = key, PhysicalKey = physical, Source = window,
+    });

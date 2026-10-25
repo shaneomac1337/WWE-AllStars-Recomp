@@ -135,13 +135,19 @@ inline std::vector<Setting> PlayerSettings() {
       {"wwe_vibration_strength", "Vibration strength", "CONTROLS",
        {{"0", "0 %"}, {"25", "25 %"}, {"50", "50 %"}, {"75", "75 %"}, {"100", "100 %"}},
        "Scales every rumble, in every vibration mode. Lower it for a gentler pad."},
+      // Keyboard spec: the SDK's keyboard driver, on by default (port_defaults.h).
+      {"mnk_mode", "Keyboard", "CONTROLS", {{"false", "Off"}, {"true", "On"}},
+       "Plays the game on the keyboard: the keys act as player 1's controller, alongside "
+       "any pad. Turn it off if stray key presses get in the way.",
+       /*startup=*/true},
       {"wwe_unlock_everything", "Unlock everything", "GAMEPLAY",
        {{"false", "Off"}, {"true", "On"}},
        "Unlocks every wrestler, arena, attire, Create a Superstar move, entrance and Fantasy "
        "Warfare match. Progress you earn while it is on is still saved; turn it off to see "
        "only what you have unlocked yourself.",
        /*startup=*/true},
-      // Faster starts (.scratch/faster-starts/spec.md): all off by default.
+      // Faster starts (.scratch/faster-starts/spec.md): Shorter loading screens is on by default
+      // (owner, 2026-10-25), Skip startup logos off.
       {.name = "wwe_short_loading_screens",
        .label = "Shorter loading screens",
        .tab = "GAMEPLAY",

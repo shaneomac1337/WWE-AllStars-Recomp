@@ -76,6 +76,8 @@ python scripts/inspect_disc.py <iso> --extract-all assets
   decompile with a hole there gets read through `disasm.py`, which decodes them.
 - Headless Ghidra (`support/analyzeHeadless.bat`) needs `GHIDRA_HEADLESS_MAXMEM=10G`;
   the 2 GB default runs out of heap in analysis.
+- The MCP's `search_bytes` finds nothing, even bytes that are there. Scan
+  `analysis/xex/tu2.pe` directly instead (file offset = address − 0x82000000).
 - Tools still missing, ranked by payoff: `docs/research/tooling-recommendations.md`.
 
 ## Known game facts
@@ -89,7 +91,15 @@ python scripts/inspect_disc.py <iso> --extract-all assets
 
 ### Issue tracker
 
-Local markdown under `.scratch/<feature>/`, committed to `main`. The public GitHub history is built without it (`scripts/publish-tree.ps1`, ADR-0023). See `docs/agents/issue-tracker.md`.
+Local markdown under `.scratch/<feature>/`, committed to `main`. The public GitHub history is built without it (`scripts/publish-tree.ps1`, ADR-0023). See `docs/agents/issue-tracker.md`, also before writing a spec or tickets (what the player sees, how much game testing a ticket plans).
+
+### Releasing
+
+Version bump, package, public push and GitHub release, in order: `docs/agents/release.md`.
+
+### Performance A/B
+
+Comparing builds or releases for speed or frame pacing: `docs/agents/ab-match.md`.
 
 ### Triage labels
 

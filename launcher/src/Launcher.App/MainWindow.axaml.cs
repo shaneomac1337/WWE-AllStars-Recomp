@@ -54,6 +54,7 @@ public partial class MainWindow : Window
 
     private readonly List<SettingRow> _rows = [];
     private const string GpuKey = "vulkan_device";
+    private const string KeyboardKey = "mnk_mode";
     private SettingsFile? _settings;
     private bool _filling;
     // Online play was chosen without a valid saved name: it turns on once the name is saved.
@@ -92,6 +93,7 @@ public partial class MainWindow : Window
         CloseModsButton.Click += (_, _) => ClosePanel();
         OpenModsFolderButton.Click += OnOpenModsFolder;
         WireModInstall();
+        WireKeys();
         DlcButton.Click += (_, _) => ShowDlc();
         CloseDlcButton.Click += (_, _) => ClosePanel();
         CancelDlcButton.Click += (_, _) => _jobs.Cancel(HomeJob.AddDlc);
@@ -296,6 +298,7 @@ public partial class MainWindow : Window
         PlayButton.IsDefault = false;
         Control first = panel == DlcView ? AddDlcButton
             : panel == ModsView ? ModsScroll
+            : panel == KeysView ? _keyRows[0].Button
             : panel != SettingsView ? NoticesScroll
             : _rows.Count > 0 ? _rows[0].Input : CheckForUpdates;
         first.Focus(NavigationMethod.Tab);
@@ -306,7 +309,8 @@ public partial class MainWindow : Window
         if (_panelOpener is null) return;
         FinishOnlineAfterName(cancel);
         if (ModsView.IsVisible) MarkModsSeen();
-        SettingsView.IsVisible = AboutView.IsVisible = DlcView.IsVisible = ModsView.IsVisible = PanelScrim.IsVisible = false;
+        _capturing = null;
+        SettingsView.IsVisible = KeysView.IsVisible = AboutView.IsVisible = DlcView.IsVisible = ModsView.IsVisible = PanelScrim.IsVisible = false;
         PlayButton.IsDefault = HomeView.IsVisible;
         _panelOpener.Focus(NavigationMethod.Tab);
         _panelOpener = null;
@@ -1848,6 +1852,20 @@ public partial class MainWindow : Window
             grid.Children.Add(text);
             // A text row with a default (the Game server) puts it back with one click.
             Control cell = input;
+            // The Keyboard row opens the Keys page.
+            if (setting.Key == KeyboardKey)
+            {
+                var keys = new Button { Content = "Keys", VerticalAlignment = VerticalAlignment.Center };
+                keys.Classes.Add("secondary");
+                AutomationProperties.SetName(keys, "Change the keyboard's keys");
+                keys.Click += (_, _) => ShowKeys(keys);
+                input.Width = 120;
+                cell = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center,
+                    Children = { input, keys },
+                };
+            }
             if (textBox is not null && setting.Default.Length > 0)
             {
                 var useDefault = new Button { Content = "Default", VerticalAlignment = VerticalAlignment.Center };

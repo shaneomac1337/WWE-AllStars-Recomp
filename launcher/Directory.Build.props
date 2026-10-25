@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <!-- The product version of both exes; CMakeLists.txt reads it for the game's VERSIONINFO. -->
-    <Version>1.6.1</Version>
+    <Version>1.7.0</Version>
     <Product>WWE All Stars Recomp</Product>
     <Copyright>WWE All Stars Recomp contributors. BSD-3-Clause.</Copyright>
     <!-- Build output stays in the repo's ignored out/ folder. -->

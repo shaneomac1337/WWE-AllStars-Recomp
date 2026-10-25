@@ -42,7 +42,8 @@ foreach ($path in @($gameFiles | ForEach-Object { "$gameBuild/$_" }) + @($launch
 $version = ([xml](Get-Content "$projectRoot/launcher/Directory.Build.props" -Raw)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
 $git = (Get-Command git).Source
 $commit = (Invoke-Hidden $git @('-C', $projectRoot, 'rev-parse', '--short', 'HEAD') | Out-String).Trim()
-$dirty = (Invoke-Hidden $git @('-C', $projectRoot, 'status', '--porcelain', '--untracked-files=no') | Out-String).Trim()
+# A file that differs from HEAD only in line endings (core.autocrlf) is not a change.
+$dirty = (Invoke-Hidden $git @('-C', $projectRoot, 'diff', 'HEAD', '--ignore-cr-at-eol') | Out-String).Trim()
 $name = "WWEAllStarsRecomp-$version-$commit$(if ($dirty) { '-dirty' })-win-x64"
 $releaseRoot = "$projectRoot/out/release"
 $stage = "$releaseRoot/$name"

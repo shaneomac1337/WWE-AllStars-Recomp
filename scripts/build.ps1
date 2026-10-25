@@ -35,6 +35,10 @@ if ($Action -in 'Launcher', 'LauncherTest') {
             -WorkingDirectory "$projectRoot/launcher" -LogPath "$projectRoot/analysis/build-launcher.log"
         Write-Output "Launcher: $projectRoot/out/launcher/publish/WWEAllStarsLauncher.exe"
     } else {
+        # Opt-in real-data tests run whenever the disc is extracted (in a worktree, the main checkout's assets/).
+        $assets = "$projectRoot/assets"
+        if (!(Test-Path -LiteralPath $assets)) { $assets = "$($dotnet -replace '/\.tools/dotnet-sdk/dotnet\.exe$', '')/assets" }
+        if ((Test-Path -LiteralPath "$assets/Game/CookedXenon") -and !$env:WWE_TEST_GAME_DATA) { $env:WWE_TEST_GAME_DATA = $assets }
         Invoke-Hidden $dotnet @('test', 'tests/Launcher.Tests/Launcher.Tests.csproj', '-c', 'Release', "-maxcpucount:$Jobs") `
             -WorkingDirectory "$projectRoot/launcher" -LogPath "$projectRoot/analysis/test-launcher.log"
         Get-Content "$projectRoot/analysis/test-launcher.log" | Select-String -Pattern '^(Passed|Failed)!' | ForEach-Object { $_.Line }

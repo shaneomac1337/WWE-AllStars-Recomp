@@ -115,6 +115,27 @@ a row in the game's own OPTIONS menu. Display mode, VSync, sharpening, texture f
 sound and vibration change at once; the rest apply at the next start. The launcher and the
 game share one settings file.
 
+### Keyboard
+
+The keyboard plays as player 1's controller, alongside any pad, while the game window has
+focus. Turn it off with **Keyboard** on the CONTROLS tab. The launcher's **Keys** button next
+to it changes any key: click an input, press its new key, and **+** adds a second one.
+
+| Controller | Keys | In a match |
+|---|---|---|
+| Left stick | W A S D | Move |
+| X / A | J / K | Quick strike / quick grab (both together: signature) |
+| Y / B | U / I (or Backspace) | Strong strike / strong grab (both together: signature) |
+| LB / RB | L / ; | Grab counter / strike counter (both together: finisher) |
+| LT / RT | F or E / Space | Context (pin, climb, objects) / run |
+| Right stick | O / P left and right, 9 / 0 up and down | Change hold |
+| D-pad | Arrow keys | Taunts |
+| Start / Back | Tab or Enter / Z | Pause, PRESS START / back |
+| Left / right stick click | C / N | |
+
+The keys sit by position, so on AZERTY or QWERTZ they are the keys in the same place
+(the research behind the layout: `docs/research/keyboard-layout.md`).
+
 ### Enhanced vibration
 
 The Xbox 360 game rumbles only for aerial hits. Enhanced vibration, the default, gives
@@ -136,10 +157,10 @@ restarting) brings back your own progress.
 
 ### Faster starts
 
-Two options on the GAMEPLAY tab, both off by default. Shorter loading screens cuts the
+Two options on the GAMEPLAY tab. Shorter loading screens is on by default: it cuts the
 fixed waits before each match where nothing is loading, about 10 seconds, and does nothing
-in online matches. Skip startup logos drops the THQ and WWE movies at boot, so the menu
-comes about 12 seconds sooner. The disclaimer still shows.
+in online matches. Skip startup logos is off by default: it drops the THQ and WWE movies at
+boot, so the menu comes about 12 seconds sooner. The disclaimer still shows.
 
 ### 120 fps matches (experimental)
 
@@ -207,7 +228,7 @@ You need:
 - Your own WWE All Stars disc image (`.iso`), the USA/Europe Xbox 360 release
 - Title Update 2 for it, dumped from your own console
 - Optional: DLC packs you bought, dumped from your own console
-- A controller is recommended
+- A controller is recommended; the keyboard works too (see Keyboard)
 
 Steps:
 

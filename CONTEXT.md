@@ -38,6 +38,10 @@ _Avoid_: emulation fallback, safe mode
 Native was running and the GPU or driver stopped working under it. The game ends the session with the reason logged and does not try to recover; the launcher offers Emulated for the next start. It is neither a renderer fallback (the session did not go on to run on Emulated) nor a crash (the game ended it on purpose).
 _Avoid_: device lost (one cause, not the term), GPU crash, renderer crash
 
+**Fault finder**:
+A Native debug setting a player turns on when asked: for the first few frames that draw, the game submits and waits after every draw, so a GPU failure names the last draw that finished and the draw it failed in, in the log and the crash report. Off by default; it slows those frames down a lot.
+_Avoid_: draw tracer, GPU debugger
+
 ### Support
 
 **Crash report**:

@@ -379,11 +379,12 @@ void SetGuestMemory(const uint8_t* virtual_membase, const uint8_t* physical_memb
               static_cast<const void*>(virtual_membase), static_cast<const void*>(physical_membase));
 }
 
-void WriteGpuFailureReport(const std::string& failure) {
+void WriteGpuFailureReport(const std::string& failure, const std::string& fault_finder) {
   if (ClaimReport(wwe::native::kGpuFailureExitCode) != Claim::kOwn) return;
   const std::tm now = LocalNow();
   CrashFacts facts = Facts(0, now);
   facts.gpu_failure = failure;
+  facts.fault_finder = fault_finder;
   WriteReport(facts, now, nullptr,
               L"The GPU stopped working while WWE All Stars ran on Native, so the game ended "
               L"the session. Switch the renderer to Emulated in the launcher if this repeats.");

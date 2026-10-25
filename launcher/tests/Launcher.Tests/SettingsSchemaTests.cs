@@ -12,7 +12,7 @@ public sealed class SettingsSchemaTests
         // The spec's startup settings ("Settings"), with the GPU and the language.
         Assert.Equal(
             ["fullscreen", "vulkan_device", "user_language", "graphics_preset", "wwe_native_renderer",
-             "wwe_native_resolution_scale", "wwe_native_anisotropy", "wwe_native_color_mode", "wwe_60fps_entrances", "wwe_120fps_matches", "wwe_unlock_everything",
+             "wwe_native_resolution_scale", "wwe_native_anisotropy", "wwe_native_color_mode", "wwe_60fps_entrances", "wwe_120fps_matches", "mnk_mode", "wwe_unlock_everything",
              "wwe_short_loading_screens", "wwe_skip_startup_logos",
              "wwe_online",
              "wwe_online_name",
@@ -40,7 +40,7 @@ public sealed class SettingsSchemaTests
     }
 
     [Fact]
-    public void The_faster_starts_settings_sit_together_on_GAMEPLAY_under_their_heading_and_are_off()
+    public void The_faster_starts_settings_sit_together_on_GAMEPLAY_under_their_heading_and_only_shorter_loading_is_on()
     {
         var schema = SettingsSchema.Committed();
 
@@ -48,9 +48,10 @@ public sealed class SettingsSchemaTests
         Assert.Equal(["wwe_short_loading_screens", "wwe_skip_startup_logos"], rows.Select(s => s.Key));
         var first = schema.Startup.ToList().IndexOf(rows[0]);
         Assert.Equal(rows, schema.Startup.Skip(first).Take(rows.Count));
+        Assert.Equal(["true", "false"], rows.Select(s => s.Default));
         Assert.All(rows, row =>
         {
-            Assert.Equal(("GAMEPLAY", "bool", "false"), (row.Tab, row.Type, row.Default));
+            Assert.Equal(("GAMEPLAY", "bool"), (row.Tab, row.Type));
             Assert.Equal(["Off", "On"], row.Choices.Select(c => c.Label));
         });
         Assert.Contains("disclaimer still shows", schema.Find("wwe_skip_startup_logos")!.Help);
@@ -66,7 +67,7 @@ public sealed class SettingsSchemaTests
 
         // Live in game (live-settings 01-04): Display mode, Texture filtering and 60 fps entrances; the rest of the
         // shown settings take a restart there, so their help stays as the game wrote it.
-        Assert.Equal(["fullscreen", "wwe_native_anisotropy", "wwe_60fps_entrances", "wwe_120fps_matches"],
+        Assert.Equal(["fullscreen", "wwe_native_anisotropy", "wwe_60fps_entrances", "wwe_120fps_matches", "mnk_mode"],
             schema.Startup.Where(s => SettingsFile.RowHelp(s, "").EndsWith(SettingsFile.InGameLiveNote))
                 .Select(s => s.Key));
         var texture = schema.Find("wwe_native_anisotropy")!;

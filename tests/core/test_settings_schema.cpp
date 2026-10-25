@@ -149,7 +149,7 @@ TEST_CASE("only the exact switch asks for the schema export") {
   CHECK_FALSE(SchemaRequested({"wweallstars.exe", "--print-settings-schema-now"}));
 }
 
-TEST_CASE("the Faster starts rows sit together on GAMEPLAY under their heading, off by default") {
+TEST_CASE("the Faster starts rows sit together on GAMEPLAY under their heading; only shorter loading screens is on by default") {
   const std::vector<Setting> settings = WithLifecycles(PlayerSettings());
   const std::map<std::string, std::string> lines = SettingLines(SchemaJson(settings));
   std::vector<std::string> rows;
@@ -162,11 +162,14 @@ TEST_CASE("the Faster starts rows sit together on GAMEPLAY under their heading, 
   }
   CHECK(rows == std::vector<std::string>{"wwe_short_loading_screens", "wwe_skip_startup_logos"});
   CHECK(last - first + 1 == rows.size());
+  const std::map<std::string, std::string> defaults = {{"wwe_short_loading_screens", "true"},
+                                                       {"wwe_skip_startup_logos", "false"}};
   for (const std::string& name : rows) {
     INFO(name);
-    CHECK(Has(lines.at(name), "\"tab\": \"GAMEPLAY\", \"type\": \"bool\", \"default\": \"false\", "
-                              "\"applies_at_startup\": true, \"native_only\": false, "
-                              "\"next_start\": true, \"heading\": \"Faster starts\""));
+    CHECK(Has(lines.at(name), "\"tab\": \"GAMEPLAY\", \"type\": \"bool\", \"default\": \"" +
+                                  defaults.at(name) +
+                                  "\", \"applies_at_startup\": true, \"native_only\": false, "
+                                  "\"next_start\": true, \"heading\": \"Faster starts\""));
   }
   // Rows without a heading export no heading field.
   CHECK_FALSE(Has(lines.at("wwe_unlock_everything"), "\"heading\""));

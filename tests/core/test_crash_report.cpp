@@ -152,3 +152,19 @@ TEST_CASE("a report from abort, a pure call or a bad CRT parameter names it") {
   CHECK(PlanCrashReport(facts).manifest.find(
             "reason: invalid CRT parameter (exception 0xE0575703)\n") != std::string::npos);
 }
+
+TEST_CASE("a GPU failure under the fault finder names its draws after the reason") {
+  CrashFacts facts = Crash();
+  facts.exception_status = 0;
+  facts.gpu_failure = "VK_ERROR_DEVICE_LOST (vkWaitForFences)";
+  facts.fault_finder = "last finished draw: none; faulting draw: frame 4 draw 1";
+  const auto plan = PlanCrashReport(facts);
+
+  CHECK(plan.manifest.find("reason: gpu failure VK_ERROR_DEVICE_LOST (vkWaitForFences)\n"
+                           "fault finder: last finished draw: none; faulting draw: frame 4 "
+                           "draw 1\n") != std::string::npos);
+}
+
+TEST_CASE("a report without the fault finder has no fault finder line") {
+  CHECK(PlanCrashReport(Crash()).manifest.find("fault finder") == std::string::npos);
+}

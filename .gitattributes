@@ -1,2 +1,4 @@
+# Text files are stored with LF; Git picks each checkout's line endings.
+* text=auto
 # git apply needs patches byte-exact; never convert their line endings.
 *.patch -text

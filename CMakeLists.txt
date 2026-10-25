@@ -42,6 +42,8 @@ set(WWEALLSTARS_SOURCES
     src/online/net_wake_hooks.cpp
     src/unlock_everything.cpp
     src/faster_starts.cpp
+    src/match_music.cpp
+    src/match_music_hooks.cpp
     src/script_input.cpp
     src/vibration/enhanced_hooks.cpp
     src/vibration/mode.cpp
@@ -280,6 +282,7 @@ if(WWE_BUILD_TESTS AND REXSDK_DIR)
         tests/native/test_draw_skips.cpp
         tests/native/test_renderer_fallback.cpp
         tests/native/test_gpu_failure.cpp
+        tests/native/test_fault_finder.cpp
         tests/native/test_frame_dumps.cpp
         tests/native/test_texture_formats.cpp
         tests/native/test_pipeline_key.cpp
@@ -306,6 +309,7 @@ if(WWE_BUILD_TESTS AND REXSDK_DIR)
         tests/core/test_graphics_preset.cpp
         tests/core/test_gpu_suggestion.cpp
         tests/core/test_crash_report.cpp
+        tests/core/test_version_line.cpp
         tests/core/test_crash_zip.cpp
         tests/core/test_crash_dump_request.cpp
         tests/core/test_spin_waits.cpp
@@ -342,10 +346,12 @@ if(WWE_BUILD_TESTS AND REXSDK_DIR)
         tests/audio/test_xma_stats.cpp
         tests/audio/test_xma_work_rules.cpp
         tests/audio/test_xma_frame_drain.cpp
+        tests/audio/test_match_music.cpp
         src/script_input.cpp
         src/settings_cvars.cpp
         src/startup_paths.cpp
         src/image_check.cpp
+        src/match_music.cpp
         src/vibration/mode.cpp
         src/vibration/rumble_mixer.cpp
         src/native/pipeline_parts.cpp

@@ -49,7 +49,7 @@ REXCVAR_DEFINE_BOOL(wwe_unlock_everything, false, "WWEAllStars",
                     "and Fantasy Warfare match; progress earned while it is on is still saved")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 // Asked when a Kismet delay or delayed link starts (faster_starts.cpp); read at the next start.
-REXCVAR_DEFINE_BOOL(wwe_short_loading_screens, false, "WWEAllStars",
+REXCVAR_DEFINE_BOOL(wwe_short_loading_screens, true, "WWEAllStars",
                     "Cut three fixed waits of the pre-match load (2.0 s before the intro movie, "
                     "5.0 s and 3.0 s before the bell) to one tick (ignored in online matches)")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);

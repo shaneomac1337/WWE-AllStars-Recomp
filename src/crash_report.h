@@ -27,7 +27,8 @@ void SetGuestMemory(const uint8_t* virtual_membase, const uint8_t* physical_memb
 // A GPU failure (ADR-0025): writes a report whose reason is `failure`,
 // "<VkResult> (<call>)", and shows the same message as a crash. If another
 // thread is already writing a crash report, waits for it to end the process.
-void WriteGpuFailureReport(const std::string& failure);
+// fault_finder: the fault finder's note on the draws, empty while it is off.
+void WriteGpuFailureReport(const std::string& failure, const std::string& fault_finder);
 
 // --wwe_debug_force_crash / --wwe_debug_force_abort: crashes the calling thread.
 void CrashIfAsked();
