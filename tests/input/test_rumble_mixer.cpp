@@ -1,5 +1,4 @@
-// The rumble mixer at the pad seam (.scratch/full-coverage-vibration/spec.md,
-// seam 1): effects added for a pad, observed at fake pads with an injected
+// The rumble mixer at the pad seam: effects added for a pad, observed at fake pads with an injected
 // clock.
 
 #include <catch_amalgamated.hpp>

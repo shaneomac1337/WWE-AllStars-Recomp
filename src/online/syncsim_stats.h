@@ -1,4 +1,4 @@
-// The online stats line (.scratch/online-latency/ ticket 01; evidence in
+// The online stats line (evidence in
 // docs/research/online-latency.md §2.2): SyncSim update results in, one-second
 // totals out. Pure, tested in tests/core/test_syncsim_stats.cpp, used by the
 // log-only hook in src/online/syncsim_stats_hook.cpp.

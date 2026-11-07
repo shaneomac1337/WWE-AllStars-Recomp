@@ -1,4 +1,4 @@
-// Reversals (.scratch/full-coverage-vibration/ ticket 04): the reverser's snap
+// Reversals: the reverser's snap
 // and the reversed wrestler's jolt (seam 2), and who they are (seam 3).
 
 #include <catch_amalgamated.hpp>

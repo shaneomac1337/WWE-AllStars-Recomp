@@ -16,11 +16,9 @@ so it is built after the release commit.
    SHA-256 and "Release check passed". The zip is
    `out/release/WWEAllStarsRecomp-X.Y.Z-<commit>-win-x64.zip`, with its `.sha256` beside it.
 6. **Public commit**: `pwsh ./scripts/publish-tree.ps1 -Message "WWE All Stars Recomp X.Y.Z"`
-   (ADR-0023: the tree without `.scratch/`), then `git push origin public:main`. `main`
+   (ADR-0023: the tree without the internal files), then `git push origin public:main`. `main`
    itself is never pushed.
 7. **GitHub release**, only on the owner's go: tag `vX.Y.Z` on the public commit, marked
    latest, with the notes as its body and the zip and `.sha256` attached. Then download the
    zip and check its SHA-256. The launcher's update check offers the update only after this
    step.
-8. **Record it**: in the feature's release ticket, the private and public commits and the
-   zip's SHA-256.

@@ -62,6 +62,7 @@
 
 REXCVAR_DECLARE(bool, wwe_native_renderer);  // settings_cvars.cpp
 REXCVAR_DECLARE(bool, present_pacing_thread_priority);  // SDK presenter.cpp
+REXCVAR_DECLARE(bool, present_allow_overscan_cutoff);   // SDK presenter.cpp
 // Developer measurement (low-end-preset ticket 01); off by default, and no
 // query pool exists while it is off.
 REXCVAR_DEFINE_STRING(wwe_native_gpu_timer_csv, "", "WWEAllStars",
@@ -127,6 +128,11 @@ REXCVAR_DECLARE(int32_t, wwe_native_resolution_scale);
 REXCVAR_DECLARE(bool, wwe_60fps_entrances);
 REXCVAR_DECLARE(bool, wwe_120fps_matches);
 REXCVAR_DECLARE(bool, wwe_unlock_everything);
+REXCVAR_DECLARE(bool, wwe_cheat_infinite_finishers);
+REXCVAR_DECLARE(bool, wwe_cheat_infinite_signatures);
+REXCVAR_DECLARE(bool, wwe_cheat_max_health);
+REXCVAR_DECLARE(bool, wwe_cheat_weak_enemy);
+REXCVAR_DECLARE(bool, wwe_cheat_no_reversal);
 REXCVAR_DECLARE(bool, wwe_short_loading_screens);
 REXCVAR_DECLARE(int32_t, wwe_native_color_mode);
 REXCVAR_DEFINE_STRING(wwe_shader_pack, "", "WWEAllStars",
@@ -1698,7 +1704,7 @@ struct Enhancement {
   const char* name;
   bool (*on)();
 };
-constexpr std::array<Enhancement, 7> kEnhancements = {{
+constexpr std::array<Enhancement, 12> kEnhancements = {{
     {"wwe_native_cas", [] { return g.device != nullptr && g_cas_applied; }},
     {"wwe_vibration_mode",
      [] { return wwe::vibration::CurrentMode() == wwe::vibration::Mode::kEnhanced; }},
@@ -1707,6 +1713,11 @@ constexpr std::array<Enhancement, 7> kEnhancements = {{
     {"wwe_60fps_entrances", [] { return REXCVAR_GET(wwe_60fps_entrances); }},
     {"wwe_120fps_matches", [] { return REXCVAR_GET(wwe_120fps_matches); }},
     {"wwe_unlock_everything", [] { return REXCVAR_GET(wwe_unlock_everything); }},
+    {"wwe_cheat_infinite_finishers", [] { return REXCVAR_GET(wwe_cheat_infinite_finishers); }},
+    {"wwe_cheat_infinite_signatures", [] { return REXCVAR_GET(wwe_cheat_infinite_signatures); }},
+    {"wwe_cheat_max_health", [] { return REXCVAR_GET(wwe_cheat_max_health); }},
+    {"wwe_cheat_weak_enemy", [] { return REXCVAR_GET(wwe_cheat_weak_enemy); }},
+    {"wwe_cheat_no_reversal", [] { return REXCVAR_GET(wwe_cheat_no_reversal); }},
     {"wwe_short_loading_screens", [] { return REXCVAR_GET(wwe_short_loading_screens); }},
 }};
 
@@ -2840,7 +2851,8 @@ static void RaiseRenderThreadPriority() {
 // The output plan for the window as it is now, so a resize shows on the next frame.
 OutputPlan PlanForWindow() {
   const uint64_t size = g_window_size.load(std::memory_order_relaxed);
-  return PlanOutput(g.scale, uint32_t(size >> 32), uint32_t(size));
+  return PlanOutput(g.scale, uint32_t(size >> 32), uint32_t(size),
+                    REXCVAR_GET(present_allow_overscan_cutoff));
 }
 
 void BlitImage(VkCommandBuffer cb, VkImage from, uint32_t from_width, uint32_t from_height,

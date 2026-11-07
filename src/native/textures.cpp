@@ -272,10 +272,11 @@ uint32_t ViewIndex(Texture& texture, uint32_t swizzle, DescriptorHeap heap,
   if (g_vk.dfn->vkCreateImageView(g_vk.vk_device, &view_info, nullptr, &view) != VK_SUCCESS) {
     return 0;
   }
-  const uint32_t index = AllocateDescriptor(heap);
-  if (index) {
-    WriteImageDescriptor(heap, index, view);
+  const std::optional<uint32_t> slot = AllocateDescriptor(heap);
+  if (slot) {
+    WriteImageDescriptor(heap, *slot, view);
   }
+  const uint32_t index = slot.value_or(0);
   texture.views.emplace(view_key, Texture::View{view, heap, index});
   return index;
 }
@@ -385,10 +386,11 @@ uint32_t SamplerIndex(const xenos::xe_gpu_texture_fetch_t& fetch, uint32_t min_l
   uint32_t index = 0;
   if (g_vk.dfn->vkCreateSampler(g_vk.vk_device, &sampler_info, nullptr, &sampler) ==
       VK_SUCCESS) {
-    index = AllocateDescriptor(kHeapSampler);
-    if (index) {
-      WriteSamplerDescriptor(index, sampler);
+    const std::optional<uint32_t> slot = AllocateDescriptor(kHeapSampler);
+    if (slot) {
+      WriteSamplerDescriptor(*slot, sampler);
     }
+    index = slot.value_or(0);
   }
   g.samplers.emplace(choice.key, index);
   return index;
@@ -671,10 +673,13 @@ bool Initialize(uint32_t scale, ColourMode colour, float lod_bias) {
                    VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT, usage)) {
     return false;
   }
-  // Index 0 of every heap.
+  // Index 0 of every heap, what a draw samples while its texture still loads.
   ViewIndex(g.defaults[0], 0x688, kHeapTexture2D, VK_IMAGE_VIEW_TYPE_2D);
   ViewIndex(g.defaults[1], 0x688, kHeapTexture3D, VK_IMAGE_VIEW_TYPE_3D);
   ViewIndex(g.defaults[2], 0x688, kHeapTextureCube, VK_IMAGE_VIEW_TYPE_CUBE);
+  if (g.defaults[0].views.empty() || g.defaults[1].views.empty() || g.defaults[2].views.empty()) {
+    return false;
+  }
   xenos::xe_gpu_texture_fetch_t linear_clamp = {};
   linear_clamp.clamp_x = linear_clamp.clamp_y = linear_clamp.clamp_z =
       xenos::ClampMode::kClampToEdge;

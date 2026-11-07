@@ -1,4 +1,4 @@
-// The online step rate (.scratch/online-latency/ ticket 03): what SyncSim's
+// The online step rate: what SyncSim's
 // adaptive-rate calculation publishes as the local StepFrequency.
 
 #include <catch_amalgamated.hpp>

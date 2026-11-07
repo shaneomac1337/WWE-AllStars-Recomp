@@ -54,4 +54,30 @@ public sealed class Lzo1xTests
 
         Assert.Throws<InvalidDataException>(() => Decode(stream, 64));
     }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(3)]
+    [InlineData(238)]
+    [InlineData(239)]
+    [InlineData(273)] // 18 + 255: the length's one byte is full
+    [InlineData(274)]
+    [InlineData(0x20000)] // a cooked package's block
+    public void Stored_literals_decode_back(int length)
+    {
+        var data = Enumerable.Range(0, length).Select(i => (byte)(i * 31 + 7)).ToArray();
+        var output = new byte[length];
+
+        Assert.Equal(length, Lzo1x.Decompress(Lzo1x.StoreLiterals(data), output));
+        Assert.Equal(data, output);
+    }
+
+    [Fact]
+    public void Stored_literals_are_the_hand_made_stream()
+    {
+        Assert.Equal([20, .. "abc"u8, 0x11, 0, 0], Lzo1x.StoreLiterals("abc"u8));
+        var long239 = new byte[239];
+        Assert.Equal([0, 221, .. long239, 0x11, 0, 0], Lzo1x.StoreLiterals(long239)); // 15 + 3 + 221 literals
+    }
 }

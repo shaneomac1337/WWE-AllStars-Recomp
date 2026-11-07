@@ -1,6 +1,6 @@
 // The vibration mode (CONTEXT.md): Off, Original or Enhanced, one setting for
-// every pad (.scratch/enhanced-vibration/spec.md), and the rumble mixer that
-// Enhanced's effects play through (.scratch/full-coverage-vibration/spec.md).
+// every pad, and the rumble mixer that
+// Enhanced's effects play through.
 
 #pragma once
 

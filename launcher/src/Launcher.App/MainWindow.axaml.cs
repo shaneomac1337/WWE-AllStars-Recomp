@@ -656,6 +656,8 @@ public partial class MainWindow : Window
                 more.Children.Add(new TextBlock { Classes = { "small" }, TextWrapping = TextWrapping.Wrap, Text = described.Description });
             foreach (var problem in mod.Problems)
                 more.Children.Add(new TextBlock { Classes = { "small" }, TextWrapping = TextWrapping.Wrap, Text = "Off: " + problem });
+            foreach (var note in mod.Notes)
+                more.Children.Add(new TextBlock { Classes = { "small" }, TextWrapping = TextWrapping.Wrap, Text = note });
             if (mod.Manifest is not null && mod.Problems.Count == 0)
                 more.Children.Add(new TextBlock { Classes = { "small" }, TextWrapping = TextWrapping.Wrap, Text = ModOnlineRule.KindLine(mod, online) });
             if (mod.IsOffForOnline(online))

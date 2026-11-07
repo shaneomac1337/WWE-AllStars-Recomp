@@ -248,36 +248,32 @@ void Touch(const fs::path& path) {
 
 }  // namespace
 
-TEST_CASE("the release's XenosRecomp beside the game folder is found") {
+TEST_CASE("the game converts with the release's shader_common.h beside the game folder") {
   TempFolder root;
-  Touch(root.path / "xenosrecomp" / "XenosRecomp.exe");
   Touch(root.path / "xenosrecomp" / "shader_common.h");
-  const auto found = FindConverter(root.path / "game", {}, {});
+  const auto found = FindConverter(root.path / "game" / "wweallstars.exe", {}, {});
   REQUIRE(found);
-  CHECK(found->executable == root.path / "xenosrecomp" / "XenosRecomp.exe");
+  CHECK(found->executable == root.path / "game" / "wweallstars.exe");
   CHECK(found->include == root.path / "xenosrecomp" / "shader_common.h");
 }
 
-TEST_CASE("a named XenosRecomp wins, with shader_common.h beside it") {
+TEST_CASE("a named shader_common.h wins") {
   TempFolder root;
-  Touch(root.path / "xenosrecomp" / "XenosRecomp.exe");
   Touch(root.path / "xenosrecomp" / "shader_common.h");
-  Touch(root.path / "mine" / "XenosRecomp.exe");
   Touch(root.path / "mine" / "shader_common.h");
-  const auto found = FindConverter(root.path / "game", root.path / "mine" / "XenosRecomp.exe", {});
+  const auto found = FindConverter(root.path / "game" / "wweallstars.exe",
+                                   root.path / "mine" / "shader_common.h", {});
   REQUIRE(found);
-  CHECK(found->executable == root.path / "mine" / "XenosRecomp.exe");
+  CHECK(found->include == root.path / "mine" / "shader_common.h");
 }
 
-TEST_CASE("the dev build's XenosRecomp is found when no release one is") {
+TEST_CASE("the dev build's shader_common.h is found when no release one is") {
   TempFolder root;
-  Touch(root.path / "out" / "XenosRecomp.exe");
   Touch(root.path / "tools" / "shader_common.h");
-  const Converter dev{root.path / "out" / "XenosRecomp.exe", root.path / "tools" / "shader_common.h"};
-  const auto found = FindConverter(root.path / "game", {}, dev);
+  const auto found =
+      FindConverter(root.path / "game" / "wweallstars.exe", {}, root.path / "tools" / "shader_common.h");
   REQUIRE(found);
-  CHECK(found->executable == dev.executable);
-  CHECK(found->include == dev.include);
+  CHECK(found->include == root.path / "tools" / "shader_common.h");
 }
 
 // Opt-in check of real XenosRecomp output for one top-up (game-derived, so
@@ -304,8 +300,7 @@ TEST_CASE("real XenosRecomp output builds a pack that loads", "[.real_converter_
   CHECK(load.pack.fetch_slots.size() == 1);
 }
 
-TEST_CASE("without XenosRecomp and its header nothing is found") {
+TEST_CASE("without shader_common.h nothing is found") {
   TempFolder root;
-  Touch(root.path / "xenosrecomp" / "XenosRecomp.exe");  // no shader_common.h
-  CHECK_FALSE(FindConverter(root.path / "game", {}, {}));
+  CHECK_FALSE(FindConverter(root.path / "game" / "wweallstars.exe", {}, {}));
 }

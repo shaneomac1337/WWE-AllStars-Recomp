@@ -1,6 +1,6 @@
 // The rumble mixer (CONTEXT.md): Enhanced's effects per pad, layered by
 // per-motor maximum and played on real time
-// (.scratch/full-coverage-vibration/spec.md).
+//.
 
 #pragma once
 

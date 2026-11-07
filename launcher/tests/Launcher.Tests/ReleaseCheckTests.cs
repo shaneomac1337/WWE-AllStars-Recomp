@@ -19,7 +19,7 @@ public sealed class ReleaseCheckTests : IDisposable
                      "WWEAllStarsLauncher.exe", "libSkiaSharp.dll", "libHarfBuzzSharp.dll", "av_libglesv2.dll",
                      "README.txt", "licenses/WWEAllStarsRecomp-LICENSE.txt", "licenses/rexglue-LICENSE.txt",
                      "game/wweallstars.exe", "game/rexruntimerd.dll", "game/rexgpu-xenosrd.dll",
-                     "game/vcruntime140.dll", "xenosrecomp/XenosRecomp.exe", "xenosrecomp/dxcompiler.dll", "xenosrecomp/fmt.dll",
+                     "game/vcruntime140.dll", "xenosrecomp/dxcompiler.dll",
                      "xenosrecomp/shader_common.h",
                  })
             Stage(path, System.Text.Encoding.UTF8.GetBytes("release file " + path));
@@ -132,8 +132,7 @@ public sealed class ReleaseCheckTests : IDisposable
     [InlineData("README.txt")]
     [InlineData("licenses/WWEAllStarsRecomp-LICENSE.txt")]
     [InlineData("game/wweallstars.exe")]
-    [InlineData("xenosrecomp/XenosRecomp.exe")]
-    [InlineData("xenosrecomp/fmt.dll")] // XenosRecomp imports it; without it the shader step exits 0xC0000135
+    [InlineData("xenosrecomp/dxcompiler.dll")] // the game's shader converter loads it
     [InlineData("xenosrecomp/shader_common.h")]
     public void A_release_missing_a_file_the_player_needs_fails(string path)
     {

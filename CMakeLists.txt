@@ -40,6 +40,8 @@ set(WWEALLSTARS_SOURCES
     src/online/syncsim_stats_hook.cpp
     src/online/step_rate_hooks.cpp
     src/online/net_wake_hooks.cpp
+    src/game_bug_fixes.cpp
+    src/cheats.cpp
     src/unlock_everything.cpp
     src/faster_starts.cpp
     src/match_music.cpp
@@ -62,6 +64,7 @@ set(WWEALLSTARS_SOURCES
     src/native/shader_topup.cpp
     src/native/texture_layout.cpp
     src/native/textures.cpp
+    src/native/shader_convert_mode.cpp
     src/native/topup_converter.cpp
     src/native/vk_context.cpp
     src/native/write_watch.cpp
@@ -203,9 +206,8 @@ add_dependencies(wweallstars wweallstars_pipeline_keys)
 target_compile_definitions(wweallstars PRIVATE
     WWE_EXPECTED_SHADER_CONVERTER_ID=0x${WWEALLSTARS_EXPECTED_CONVERTER_ID}ull
     WWE_DISC_MANIFEST_VERSION="${WWEALLSTARS_MANIFEST_VERSION}"
-    # Live shader top-ups (src/native/topup_converter.h) in a dev build: the XenosRecomp
-    # scripts/build-xenosrecomp.ps1 builds. The release ships its own beside game/.
-    WWE_DEV_XENOSRECOMP="${CMAKE_CURRENT_SOURCE_DIR}/out/build/xenosrecomp/XenosRecomp/XenosRecomp.exe"
+    # Live shader top-ups (src/native/topup_converter.h) in a dev build. The release ships
+    # shader_common.h in xenosrecomp/ beside game/.
     WWE_DEV_XENOSRECOMP_INCLUDE="${CMAKE_CURRENT_SOURCE_DIR}/.tools/xenosrecomp/XenosRecomp/shader_common.h")
 
 # Diagnostic build: count calls to every D3D library function
@@ -245,6 +247,57 @@ target_compile_options(wweallstars_native_deps PRIVATE -w)
 target_include_directories(wweallstars_native_deps PUBLIC
     ${WWEALLSTARS_ZSTD} ${WWEALLSTARS_XENOSRECOMP_THIRDPARTY}/smol-v/source)
 target_link_libraries(wweallstars PRIVATE wweallstars_native_deps)
+
+# XenosRecomp, the shader converter, inside the game exe (src/native/shader_convert_mode.h,
+# ADR-0029). Its fmt is header-only in its own inline namespace, its xxHash inline, and it needs
+# zstd's compressor on top of the decompressor above.
+set(WWEALLSTARS_XENOSRECOMP "${CMAKE_CURRENT_SOURCE_DIR}/.tools/xenosrecomp/XenosRecomp")
+execute_process(COMMAND git -C "${CMAKE_CURRENT_SOURCE_DIR}/.tools/xenosrecomp" apply --reverse --check "${WWEALLSTARS_XENOSRECOMP_PATCH}"
+    RESULT_VARIABLE WWEALLSTARS_XENOSRECOMP_UNPATCHED OUTPUT_QUIET ERROR_QUIET)
+if(WWEALLSTARS_XENOSRECOMP_UNPATCHED)
+    message(FATAL_ERROR "XenosRecomp lacks patches/xenosrecomp-wweallstars.patch. Run scripts/build-xenosrecomp.ps1 once.")
+endif()
+add_library(wweallstars_xenosrecomp STATIC
+    ${WWEALLSTARS_XENOSRECOMP}/dxc_compiler.cpp
+    ${WWEALLSTARS_XENOSRECOMP}/main.cpp
+    ${WWEALLSTARS_XENOSRECOMP}/shader_recompiler.cpp
+    src/native/xenosrecomp_dxc.cpp
+    ${WWEALLSTARS_ZSTD}/compress/fse_compress.c
+    ${WWEALLSTARS_ZSTD}/compress/hist.c
+    ${WWEALLSTARS_ZSTD}/compress/huf_compress.c
+    ${WWEALLSTARS_ZSTD}/compress/zstd_compress.c
+    ${WWEALLSTARS_ZSTD}/compress/zstd_compress_literals.c
+    ${WWEALLSTARS_ZSTD}/compress/zstd_compress_sequences.c
+    ${WWEALLSTARS_ZSTD}/compress/zstd_compress_superblock.c
+    ${WWEALLSTARS_ZSTD}/compress/zstd_double_fast.c
+    ${WWEALLSTARS_ZSTD}/compress/zstd_fast.c
+    ${WWEALLSTARS_ZSTD}/compress/zstd_lazy.c
+    ${WWEALLSTARS_ZSTD}/compress/zstd_ldm.c
+    ${WWEALLSTARS_ZSTD}/compress/zstd_opt.c
+    ${WWEALLSTARS_ZSTD}/compress/zstd_preSplit.c)
+set_source_files_properties(${WWEALLSTARS_XENOSRECOMP}/main.cpp PROPERTIES COMPILE_DEFINITIONS main=xenos_recomp_main)
+target_compile_definitions(wweallstars_xenosrecomp PRIVATE
+    SVR2011_RECOMP FMT_HEADER_ONLY XXH_INLINE_ALL _CRT_SECURE_NO_WARNINGS ZSTD_DISABLE_ASM)
+target_compile_options(wweallstars_xenosrecomp PRIVATE -w
+    "$<$<COMPILE_LANGUAGE:CXX>:-fms-extensions>"
+    "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/src/native/xenosrecomp_dxc.h>"
+    "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include ${WWEALLSTARS_XENOSRECOMP}/pch.h>")
+target_include_directories(wweallstars_xenosrecomp PRIVATE
+    src
+    ${WWEALLSTARS_XENOSRECOMP}
+    ${WWEALLSTARS_XENOSRECOMP_THIRDPARTY}/dxc-bin/inc
+    ${WWEALLSTARS_XENOSRECOMP_THIRDPARTY}/fmt/include
+    ${WWEALLSTARS_XENOSRECOMP_THIRDPARTY}/xxHash
+    ${WWEALLSTARS_XENOSRECOMP_THIRDPARTY}/smol-v/source
+    ${WWEALLSTARS_ZSTD}
+    ${WWEALLSTARS_ZSTD}/common)
+target_link_libraries(wweallstars_xenosrecomp PRIVATE wweallstars_native_deps)
+target_link_libraries(wweallstars PRIVATE wweallstars_xenosrecomp)
+# A dev build finds dxcompiler.dll beside the game; the release ships it in xenosrecomp/.
+add_custom_command(TARGET wweallstars POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${WWEALLSTARS_XENOSRECOMP_THIRDPARTY}/dxc-bin/bin/x64/dxcompiler.dll" "$<TARGET_FILE_DIR:wweallstars>"
+    VERBATIM)
 # Crash report (src/crash_report.cpp): the version and commit go in its manifest.
 execute_process(COMMAND git rev-parse --short HEAD WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     OUTPUT_VARIABLE WWEALLSTARS_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)

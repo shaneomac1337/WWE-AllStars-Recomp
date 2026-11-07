@@ -579,8 +579,12 @@ struct OutputPlan {
 constexpr float LodBiasFor(uint32_t render_scale) {
   return render_scale >= 3 ? -1.0f : render_scale == 2 ? -0.5f : 0.0f;
 }
+// The presenter's rounding (rescale_unsigned in presenter.cpp).
+constexpr uint32_t RescaleRounded(uint64_t value, uint64_t scale, uint64_t divisor) {
+  return uint32_t((value * scale + divisor / 2) / divisor);
+}
 constexpr OutputPlan PlanOutput(uint32_t render_scale, uint32_t window_width,
-                                uint32_t window_height) {
+                                uint32_t window_height, bool crop_to_fill = false) {
   OutputPlan plan;
   plan.target_scale = render_scale;
   plan.output_width = 1280 * render_scale;
@@ -592,6 +596,25 @@ constexpr OutputPlan PlanOutput(uint32_t render_scale, uint32_t window_width,
     fit_width = uint32_t(uint64_t(window_height) * 16 / 9);
   } else {
     fit_height = uint32_t(uint64_t(window_width) * 9 / 16);
+  }
+  // With the overscan cutoff the presenter covers the window instead, up to its 90% safe area.
+  // Its exact size, or every frame would be resampled again by a pixel (presenter.cpp).
+  if (crop_to_fill) {
+    if (uint64_t(window_width) * 9 > uint64_t(window_height) * 16) {
+      fit_width = window_width;
+      fit_height = RescaleRounded(window_width, 9, 16);
+      if (uint64_t(fit_height) * 90 > uint64_t(window_height) * 100) {
+        fit_height = RescaleRounded(window_height, 100, 90);
+        fit_width = RescaleRounded(uint64_t(window_height) * 100, 16, 9 * 90);
+      }
+    } else {
+      fit_height = window_height;
+      fit_width = RescaleRounded(window_height, 16, 9);
+      if (uint64_t(fit_width) * 90 > uint64_t(window_width) * 100) {
+        fit_width = RescaleRounded(window_width, 100, 90);
+        fit_height = RescaleRounded(uint64_t(window_width) * 100, 9, 16 * 90);
+      }
+    }
   }
   // 720p goes to the presenter whatever the window: as before the remaster, and
   // scene runs keep their 1280x720 frames.

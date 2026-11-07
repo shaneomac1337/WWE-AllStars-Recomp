@@ -3,8 +3,16 @@ using System.Text;
 
 namespace WweAllStars.Launcher.Core;
 
-/// <summary>A package found under a name it was not made under; <see cref="MadeAs"/> is its own name when known.</summary>
-public sealed record RenamedPackage(string? MadeAs);
+/// <summary>
+/// A package found under a name it was not made under; <see cref="MadeAs"/> is its own name when
+/// known. <see cref="CannotRename"/> says why the launcher can't rename it to its file's name
+/// (package-rename spec), and is null when it can; it is never null when <see cref="MadeAs"/> is.
+/// </summary>
+public sealed record RenamedPackage(string? MadeAs, string? CannotRename = null)
+{
+    /// <summary>Whether <see cref="PackageRename.Write"/> can make it the package of its file's name.</summary>
+    public bool Renamable => CannotRename is null;
+}
 
 /// <summary>
 /// Whether a cooked package carries the name it was made under (ticket 20). A cooked package
@@ -20,7 +28,6 @@ public sealed record RenamedPackage(string? MadeAs);
 /// </remarks>
 public static class PackageOrigin
 {
-    private const uint Tag = 0x9E2A83C1;
     private const int ContainsScript = 0x200000;
     private const int MaxEntries = 1 << 22;
 
@@ -34,7 +41,9 @@ public static class PackageOrigin
     {
         try
         {
-            return Tables.Read(file) is { } tables ? Judge(tables, Path.GetFileNameWithoutExtension(fileName), isKnownPackage) : null;
+            if (Tables.Read(file) is not { } tables) return null;
+            var renamed = Judge(tables, Path.GetFileNameWithoutExtension(fileName), isKnownPackage);
+            return renamed is { Renamable: true } && ChunkProblem(file, tables.Chunks) is { } problem ? renamed with { CannotRename = problem } : renamed;
         }
         catch (Exception error) when (error is ArgumentException or IndexOutOfRangeException or OverflowException or EndOfStreamException)
         {
@@ -42,15 +51,23 @@ public static class PackageOrigin
         }
     }
 
-    /// <summary>The page's reason for a renamed package, such as "packages/CHR_101_A.xxx was made as CHR_101_B.xxx: …".</summary>
+    /// <summary>
+    /// The page's reason for a renamed package the launcher can't rename, such as
+    /// "packages/CHR_101_A.xxx was made as CHR_101_B.xxx: …, and the launcher can't rename this one: …".
+    /// </summary>
     internal static string Reason(string shown, RenamedPackage renamed) =>
         renamed.MadeAs is { } original
-            ? $"{shown} was made as {original}: renaming a package does not replace it."
+            ? $"{shown} was made as {original}: renaming a package does not replace it"
+                + (renamed.CannotRename is { } why ? $", and the launcher can't rename this one: {why}." : ".")
             : $"{shown} was made under another name: renaming a package does not replace it.";
 
+    /// <summary>The Mods tab's note for a package Play renames, such as "CHR_101_A.xxx was made as CHR_101_B.xxx; …".</summary>
+    internal static string Note(string fileName, RenamedPackage renamed) =>
+        $"{fileName} was made as {renamed.MadeAs}; the launcher renames it for this slot.";
+
     /// <summary>
-    /// The reason a wrap is refused when one of its loose packages is a renamed copy; null
-    /// otherwise. A package that can't be read is left to the install's own checks.
+    /// The reason a wrap is refused when one of its loose packages is a renamed copy the launcher
+    /// can't rename; null otherwise. A package that can't be read is left to the install's own checks.
     /// </summary>
     internal static string? RenamedIn(ModWrapCandidate wrap, KnownGameFiles known)
     {
@@ -60,7 +77,7 @@ public static class PackageOrigin
             try
             {
                 using var stream = File.OpenRead(from);
-                if (Check(stream, Path.GetFileName(to), known.IsPackage) is { } renamed) return Reason(Path.GetFileName(to), renamed);
+                if (Check(stream, Path.GetFileName(to), known.IsPackage) is { Renamable: false } renamed) return Reason(Path.GetFileName(to), renamed);
             }
             catch (Exception error) when (error is InvalidDataException or IOException or UnauthorizedAccessException)
             {
@@ -77,9 +94,55 @@ public static class PackageOrigin
         if (top.Any(export => Same(export.Name, name))) return null;
         var madeAs = top.Where(export => export.ClassName == "Package")
             .Select(export => export.Name + ".xxx").FirstOrDefault(isKnownPackage);
-        if (!tables.HasName(name)) return new RenamedPackage(madeAs);
+        if (!tables.HasName(name))
+            return new RenamedPackage(madeAs, madeAs is null ? "the name it was made under is unknown" : CannotRename(tables, madeAs, name));
         if ((tables.Flags & ContainsScript) != 0 || madeAs is null) return null;
-        return new RenamedPackage(madeAs);
+        return new RenamedPackage(madeAs, $"it already names {name}");
+    }
+
+    /// <summary>
+    /// Why the package made as <paramref name="madeAs"/> can't be renamed to <paramref name="name"/>,
+    /// or null: the names are the same length, and the old prefix (the old name up to its last
+    /// character that differs, <c>Arena_005</c> for <c>Arena_005_Ring</c> to <c>Arena_003_Ring</c>)
+    /// is in the name table only as the package's own name.
+    /// </summary>
+    private static string? CannotRename(Tables tables, string madeAs, string name)
+    {
+        var old = Path.GetFileNameWithoutExtension(madeAs);
+        if (old.Length != name.Length) return "names of different lengths can't be renamed";
+        if (tables.WholeFile) return "packages compressed as a whole can't be renamed";
+        var differs = old.Length - 1;
+        while (differs > 0 && char.ToUpperInvariant(old[differs]) == char.ToUpperInvariant(name[differs])) differs--;
+        var oldPrefix = old[..(differs + 1)];
+        var own = tables.Names.Count(entry => Same(entry, old));
+        // An FName with a number (Foo_1) is stored without it, so it has no entry to rewrite.
+        if (own == 0) return "its name table holds its own name only with a number";
+        if (own > 1) return "its name table holds its own name more than once";
+        var other = tables.Names.FirstOrDefault(entry => !Same(entry, old) && entry.Contains(oldPrefix, StringComparison.OrdinalIgnoreCase));
+        return other is null ? null : $"its name table also names {oldPrefix} in {other}";
+    }
+
+    /// <summary>
+    /// What in the chunk table or the chunk headers <see cref="PackageRename.Write"/> would refuse,
+    /// or null. The headers are read, not the blocks, so a block that does not expand still fails at Play.
+    /// </summary>
+    private static string? ChunkProblem(Stream file, IReadOnlyList<Ue3Chunks.Entry> chunks)
+    {
+        if (chunks.Count == 0) return null;
+        if (chunks.Any(chunk => chunk.Offset < 0 || chunk.Size < 0 || chunk.CompressedOffset < 0)) return "a chunk has a negative offset";
+        // The renamed copy keeps the file up to its first compressed chunk, chunk table included.
+        if (chunks.Max(chunk => chunk.TableAt) + 16 > chunks.Min(chunk => chunk.CompressedOffset)) return "its chunk table runs into its first chunk";
+        try
+        {
+            foreach (var chunk in chunks)
+                if (Ue3Chunks.ReadHeader(file, chunk.CompressedOffset, bigEndian: true).Size != chunk.Size)
+                    return "a compressed chunk's size differs from the chunk table";
+        }
+        catch (InvalidDataException error) when (Ue3Chunks.WhatIsDamaged(error) is { } what)
+        {
+            return what;
+        }
+        return null;
     }
 
     private static bool Same(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
@@ -91,6 +154,12 @@ public static class PackageOrigin
         public required int Flags { get; init; }
         public required List<string> Names { get; init; }
         public required List<Export> Exports { get; init; }
+
+        /// <summary>Whether the whole file is LZO chunks, rather than the summary listing its chunks.</summary>
+        public required bool WholeFile { get; init; }
+
+        /// <summary>The summary's chunk table; empty for a plain package or one compressed as a whole.</summary>
+        public required IReadOnlyList<Ue3Chunks.Entry> Chunks { get; init; }
 
         /// <summary>
         /// Whether <paramref name="name"/> is in the name table: as it is, or as an FName with a
@@ -113,8 +182,10 @@ public static class PackageOrigin
             file.Position = 0;
             if (file.ReadAtLeast(head, 4, throwOnEndOfStream: false) < 4) return null;
             Expanded data;
-            if (BinaryPrimitives.ReadUInt32BigEndian(head) == Tag) data = Expanded.Chunked(file);
-            else if (BinaryPrimitives.ReadUInt32LittleEndian(head) == Tag) data = Expanded.WholeFile(file);
+            List<Ue3Chunks.Entry> chunks = [];
+            var wholeFile = false;
+            if (BinaryPrimitives.ReadUInt32BigEndian(head) == Ue3Chunks.Tag) data = Expanded.Chunked(file, out chunks);
+            else if (BinaryPrimitives.ReadUInt32LittleEndian(head) == Ue3Chunks.Tag) (data, wholeFile) = (Expanded.WholeFile(file), true);
             else return null;
 
             var summary = Ue3Summary.Read(data);
@@ -155,7 +226,7 @@ public static class PackageOrigin
                     : classIndex < 0 && -classIndex - 1 < imports.Length ? imports[-classIndex - 1] : null;
                 exports.Add(new Export(outer, name, className));
             }
-            return new Tables { Flags = flags, Names = names, Exports = exports };
+            return new Tables { Flags = flags, Names = names, Exports = exports, WholeFile = wholeFile, Chunks = chunks };
         }
 
         private static int Count(int value) =>
@@ -180,31 +251,16 @@ public static class PackageOrigin
             _blocks = blocks.GetEnumerator();
         }
 
-        /// <summary>A big-endian package: plain, or with its body in LZO chunks the summary lists.</summary>
-        public static Expanded Chunked(Stream file)
+        /// <summary>A big-endian package: plain, or with its body in the LZO <paramref name="chunks"/> the summary lists.</summary>
+        public static Expanded Chunked(Stream file, out List<Ue3Chunks.Entry> chunks)
         {
             var plain = new Expanded(file, Plain(file));
-            var p = 20;
-            plain.FString(ref p); // folder name
-            p += 4 * 7 + 16; // flags, table counts and offsets, GUID
-            var generations = Count(plain.I32(ref p), 12);
-            p += generations * 12 + 8; // generations, engine and cooker version
-            var compression = plain.I32(ref p);
-            var chunkCount = Count(plain.I32(ref p), 16);
-            if (chunkCount == 0) return plain;
-            if (compression != 2) throw Damaged($"compression {compression} is not LZO");
-            var chunks = new List<(int Offset, int CompressedOffset)>();
-            for (var i = 0; i < chunkCount; i++)
-            {
-                var offset = plain.I32(ref p);
-                p += 4;
-                chunks.Add((offset, plain.I32(ref p)));
-                p += 4;
-            }
-            chunks.Sort();
-            var first = chunks[0].Offset;
+            chunks = Ue3Chunks.ReadTable(plain);
+            if (chunks.Count == 0) return plain;
+            var ordered = chunks.OrderBy(chunk => chunk.Offset).ToList();
+            var first = ordered[0].Offset;
             plain.Ensure(first);
-            var expanded = new Expanded(file, chunks.SelectMany(chunk => Blocks(file, chunk.CompressedOffset, bigEndian: true, out _)));
+            var expanded = new Expanded(file, ordered.SelectMany(chunk => Blocks(file, chunk.CompressedOffset, bigEndian: true, out _)));
             expanded.Append(plain._data.AsSpan(0, first));
             return expanded;
         }
@@ -224,41 +280,25 @@ public static class PackageOrigin
             while (at + 16 <= file.Length)
             {
                 file.Position = at;
-                if (file.ReadAtLeast(word, 4, throwOnEndOfStream: false) < 4 || BinaryPrimitives.ReadUInt32LittleEndian(word) != Tag) yield break;
+                if (file.ReadAtLeast(word, 4, throwOnEndOfStream: false) < 4 || BinaryPrimitives.ReadUInt32LittleEndian(word) != Ue3Chunks.Tag) yield break;
                 var blocks = Blocks(file, at, bigEndian: false, out var end);
                 foreach (var block in blocks) yield return block;
                 at = end;
             }
         }
 
-        /// <summary>One chunk's blocks: {tag, block size, compressed size, size}, then {compressed, size} per block.</summary>
+        /// <summary>Where each of one chunk's blocks lies, from its header.</summary>
         private static List<(long, int, int)> Blocks(Stream file, long at, bool bigEndian, out long end)
         {
-            var header = new byte[16];
-            ReadExactly(file, at, header);
-            int Word(ReadOnlySpan<byte> bytes) =>
-                bigEndian ? BinaryPrimitives.ReadInt32BigEndian(bytes) : BinaryPrimitives.ReadInt32LittleEndian(bytes);
-            if (unchecked((uint)Word(header)) != Tag) throw Damaged("a compressed chunk has no tag");
-            var total = Word(header.AsSpan(12));
-            if (total < 0) throw Damaged("a compressed chunk has a negative size");
-            var sizes = new List<(int Compressed, int Size)>();
-            var pair = new byte[8];
-            var p = at + 16;
-            for (long sum = 0; sum < total; p += 8)
-            {
-                ReadExactly(file, p, pair);
-                var block = (Word(pair), Word(pair.AsSpan(4)));
-                if (block.Item1 < 0 || block.Item2 <= 0) throw Damaged("a compressed block has a bad size");
-                sizes.Add(block);
-                sum += block.Item2;
-            }
+            var header = Ue3Chunks.ReadHeader(file, at, bigEndian);
             var blocks = new List<(long, int, int)>();
-            foreach (var (compressed, size) in sizes)
+            var p = header.DataAt;
+            foreach (var (compressed, size) in header.Blocks)
             {
                 blocks.Add((p, compressed, size));
                 p += compressed;
             }
-            end = p;
+            end = header.End;
             return blocks;
         }
 
@@ -320,10 +360,7 @@ public static class PackageOrigin
             p += (int)bytes;
             return text;
         }
-
-        private static int Count(int value, int size) =>
-            value is >= 0 and <= MaxEntries / 16 ? value : throw Damaged($"a summary table of {size}-byte entries has an impossible size");
     }
 
-    private static InvalidDataException Damaged(string what) => new($"The package is damaged: {what}.");
+    private static InvalidDataException Damaged(string what) => Ue3Chunks.Damaged(what);
 }

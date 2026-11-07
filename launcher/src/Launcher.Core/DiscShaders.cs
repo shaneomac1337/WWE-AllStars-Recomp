@@ -76,8 +76,6 @@ public static class DiscShaders
 /// </summary>
 internal static class Ue3Package
 {
-    private const uint Tag = 0x9E2A83C1;
-    private const uint LzoCompression = 2;
     private const uint XenonPlatform = 2;
 
     /// <summary>The containers in a package's shader cache; none for other files.</summary>
@@ -85,8 +83,8 @@ internal static class Ue3Package
     {
         if (file.Length < 4) return [];
         byte[] package;
-        if (BinaryPrimitives.ReadUInt32LittleEndian(file) == Tag) package = WholeFile(file);
-        else if (BinaryPrimitives.ReadUInt32BigEndian(file) == Tag) package = Expand(file);
+        if (BinaryPrimitives.ReadUInt32LittleEndian(file) == Ue3Chunks.Tag) package = WholeFile(file);
+        else if (BinaryPrimitives.ReadUInt32BigEndian(file) == Ue3Chunks.Tag) package = Expand(file);
         else return []; // not a package, such as AIFSM_Strategies.xxx
         return Read(package);
     }
@@ -95,8 +93,8 @@ internal static class Ue3Package
     /// <exception cref="InvalidDataException">It is not a package, or it is damaged.</exception>
     public static byte[] Unpacked(byte[] file)
     {
-        if (file.Length >= 4 && BinaryPrimitives.ReadUInt32LittleEndian(file) == Tag) return WholeFile(file);
-        if (file.Length >= 4 && BinaryPrimitives.ReadUInt32BigEndian(file) == Tag)
+        if (file.Length >= 4 && BinaryPrimitives.ReadUInt32LittleEndian(file) == Ue3Chunks.Tag) return WholeFile(file);
+        if (file.Length >= 4 && BinaryPrimitives.ReadUInt32BigEndian(file) == Ue3Chunks.Tag)
         {
             try
             {
@@ -127,30 +125,16 @@ internal static class Ue3Package
         }
 
         if (ReadAt(0, word[..4]) < 4) return null;
-        if (BinaryPrimitives.ReadUInt32BigEndian(word) == Tag) return 0;
-        if (BinaryPrimitives.ReadUInt32LittleEndian(word) != Tag) return null;
+        if (BinaryPrimitives.ReadUInt32BigEndian(word) == Ue3Chunks.Tag) return 0;
+        if (BinaryPrimitives.ReadUInt32LittleEndian(word) != Ue3Chunks.Tag) return null;
 
         long total = 0;
         long at = 0;
-        Span<byte> header = stackalloc byte[16];
-        while (ReadAt(at, header) == 16 && BinaryPrimitives.ReadUInt32LittleEndian(header) == Tag)
+        while (at + 16 <= file.Length && ReadAt(at, word[..4]) == 4 && BinaryPrimitives.ReadUInt32LittleEndian(word) == Ue3Chunks.Tag)
         {
-            var size = BinaryPrimitives.ReadInt32LittleEndian(header[12..]);
-            if (size < 0) throw Damaged("a compressed chunk has a negative size");
-            total += size;
-            var p = at + 16;
-            long compressed = 0;
-            for (long sum = 0; sum < size; p += 8)
-            {
-                if (ReadAt(p, word) < 8) throw Damaged("a compressed chunk ends early");
-                var blockCompressed = BinaryPrimitives.ReadInt32LittleEndian(word);
-                var blockSize = BinaryPrimitives.ReadInt32LittleEndian(word[4..]);
-                if (blockCompressed < 0 || blockSize <= 0) throw Damaged("a compressed block has a bad size");
-                compressed += blockCompressed;
-                sum += blockSize;
-            }
-            at = p + compressed;
-            if (at > file.Length) throw Damaged("a compressed block ends early");
+            var header = Ue3Chunks.ReadHeader(file, at, bigEndian: false);
+            total += header.Size;
+            at = header.End;
         }
         return total;
     }
@@ -225,31 +209,15 @@ internal static class Ue3Package
     /// <summary>A package whose body is in LZO chunks listed by the summary; others are returned as they are.</summary>
     private static byte[] Expand(byte[] file)
     {
-        var p = 20;
-        new PackageBytes(file).FString(ref p); // folder name
-        p += 4 * 7 + 16;
-        var generations = I32(file, ref p);
-        p += generations * 12 + 8; // generations, engine and cooker version
-        var flags = (uint)I32(file, ref p);
-        var chunkCount = I32(file, ref p);
-        if (chunkCount == 0) return file;
-        if (flags != LzoCompression) throw Damaged($"compression {flags} is not LZO");
-        var chunks = new (int Offset, int Size, int CompressedOffset)[chunkCount];
-        for (var i = 0; i < chunkCount; i++)
-        {
-            var offset = I32(file, ref p);
-            var size = I32(file, ref p);
-            var compressedOffset = I32(file, ref p);
-            p += 4;
-            chunks[i] = (offset, size, compressedOffset);
-        }
+        var chunks = Ue3Chunks.ReadTable(new PackageBytes(file));
+        if (chunks.Count == 0) return file;
         var first = chunks.Min(chunk => chunk.Offset);
         var package = new byte[chunks.Max(chunk => (long)chunk.Offset + chunk.Size)];
         file.AsSpan(0, first).CopyTo(package);
-        foreach (var (offset, size, compressedOffset) in chunks)
+        foreach (var chunk in chunks)
         {
-            var at = compressedOffset;
-            if (Chunk(file, ref at, bigEndian: true, package.AsSpan(offset, size)) != size)
+            var at = chunk.CompressedOffset;
+            if (Chunk(file, ref at, bigEndian: true, package.AsSpan(chunk.Offset, chunk.Size)) != chunk.Size)
                 throw Damaged("a compressed chunk has the wrong size");
         }
         return package;
@@ -260,7 +228,7 @@ internal static class Ue3Package
     {
         var parts = new List<byte[]>();
         var at = 0;
-        while (at + 16 <= file.Length && BinaryPrimitives.ReadUInt32LittleEndian(file.AsSpan(at)) == Tag)
+        while (at + 16 <= file.Length && BinaryPrimitives.ReadUInt32LittleEndian(file.AsSpan(at)) == Ue3Chunks.Tag)
         {
             var size = BinaryPrimitives.ReadInt32LittleEndian(file.AsSpan(at + 12));
             if (size < 0) throw Damaged("a compressed chunk has a negative size");
@@ -273,42 +241,13 @@ internal static class Ue3Package
         return [.. parts.SelectMany(part => part)];
     }
 
-    /// <summary>
-    /// One chunk: {tag, block size (unreliable on this disc), compressed size, uncompressed size},
-    /// {compressed, uncompressed} per block, then the LZO blocks. Returns the bytes written.
-    /// </summary>
+    /// <summary>One chunk (<see cref="Ue3Chunks"/>) expanded into <paramref name="output"/>; returns the bytes written and moves <paramref name="at"/> past it.</summary>
     private static int Chunk(byte[] file, ref int at, bool bigEndian, Span<byte> output)
     {
-        int Read(int offset)
-        {
-            if (offset < 0 || offset + 4 > file.Length) throw Damaged("a compressed chunk ends early");
-            return bigEndian
-                ? BinaryPrimitives.ReadInt32BigEndian(file.AsSpan(offset))
-                : BinaryPrimitives.ReadInt32LittleEndian(file.AsSpan(offset));
-        }
-
-        if ((uint)Read(at) != Tag) throw Damaged("a compressed chunk has no tag");
-        var total = Read(at + 12);
-        var blocks = new List<(int Compressed, int Uncompressed)>();
-        var p = at + 16;
-        for (var sum = 0L; sum < total; p += 8)
-        {
-            var block = (Read(p), Read(p + 4));
-            if (block.Item1 < 0 || block.Item2 <= 0) throw Damaged("a compressed block has a bad size");
-            blocks.Add(block);
-            sum += block.Item2;
-        }
-        var written = 0;
-        foreach (var (compressed, uncompressed) in blocks)
-        {
-            if (p + compressed > file.Length || written + uncompressed > output.Length)
-                throw Damaged("a compressed block ends early");
-            if (Lzo1x.Decompress(file.AsSpan(p, compressed), output.Slice(written, uncompressed)) != uncompressed)
-                throw Damaged("a compressed block has the wrong size");
-            p += compressed;
-            written += uncompressed;
-        }
-        at = p;
+        using var stream = new MemoryStream(file, writable: false);
+        var header = Ue3Chunks.ReadHeader(stream, at, bigEndian);
+        var written = Ue3Chunks.Expand(file, header, output);
+        at = (int)header.End;
         return written;
     }
 
@@ -319,5 +258,5 @@ internal static class Ue3Package
         return value;
     }
 
-    private static InvalidDataException Damaged(string what) => new($"The package is damaged: {what}.");
+    private static InvalidDataException Damaged(string what) => Ue3Chunks.Damaged(what);
 }

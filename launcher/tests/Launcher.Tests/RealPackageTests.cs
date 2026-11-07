@@ -7,7 +7,7 @@ namespace WweAllStars.Launcher.Tests;
 /// Local-only checks over the owner's own TU2 and Pack 1 packages in the repo's <c>dlc/</c>
 /// folder and the disc's <c>assets/nxeart</c> (gitignored; game data never enters Git),
 /// skipped when the files are absent. The file lists and SHA-256s come from
-/// <c>.scratch/tu2-dlc/prototype/</c> (hashes only, no content).
+/// <c>docs/research/package-hashes/</c> (hashes only, no content).
 /// </summary>
 public sealed class RealPackageTests : IDisposable
 {
@@ -130,7 +130,7 @@ public sealed class RealPackageTests : IDisposable
     private void CheckUnpacked(StfsPackage package, string listName)
     {
         package.Extract(_folder, null, CancellationToken.None);
-        var expected = File.ReadAllLines(Path.Combine(Repo, ".scratch", "tu2-dlc", "prototype", listName))
+        var expected = File.ReadAllLines(Path.Combine(Repo, "docs", "research", "package-hashes", listName))
             .Where(line => line.Length > 66)
             .ToDictionary(line => line[66..].TrimStart('.', '/').Replace('\\', '/'), line => line[..64],
                 StringComparer.OrdinalIgnoreCase);

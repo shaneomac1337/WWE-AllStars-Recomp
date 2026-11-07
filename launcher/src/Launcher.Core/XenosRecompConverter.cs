@@ -8,26 +8,29 @@ namespace WweAllStars.Launcher.Core;
 public static partial class ShaderConverter;
 
 /// <summary>
-/// Runs XenosRecomp, shipped beside the launcher: <c>XenosRecomp.exe</c> with its DLLs and
-/// <c>shader_common.h</c> in one folder (scripts/convert-shaders.ps1 runs it the same way).
+/// Runs XenosRecomp, which lives inside the game exe (<c>--wwe_convert_shaders</c>, ADR-0029), with
+/// <c>shader_common.h</c> and <c>dxcompiler.dll</c> from one folder (scripts/convert-shaders.ps1 runs it
+/// the same way).
 /// </summary>
-public sealed partial class XenosRecompConverter(string executable) : IShaderConverter
+public sealed partial class XenosRecompConverter(string gameExecutable, string folder) : IShaderConverter
 {
-    public const string ExecutableName = "XenosRecomp.exe";
+    public const string Flag = "--wwe_convert_shaders";
     public const string IncludeName = "shader_common.h";
+    public const string CompilerName = "dxcompiler.dll";
 
-    public string Executable { get; } = Path.GetFullPath(executable);
+    public string Executable { get; } = Path.GetFullPath(gameExecutable);
+    public string Folder { get; } = Path.GetFullPath(folder);
 
     public void Convert(string inputDirectory, string outputDirectory, IProgress<double>? progress, CancellationToken cancel)
     {
-        var include = Path.Combine(Path.GetDirectoryName(Executable)!, IncludeName);
-        if (!File.Exists(Executable) || !File.Exists(include))
-            throw new ShaderConverterException(
-                $"the shader converter is missing ({(File.Exists(Executable) ? include : Executable)}). Unzip the launcher's release again");
+        var include = Path.Combine(Folder, IncludeName);
+        var missing = new[] { Executable, include, Path.Combine(Folder, CompilerName) }.FirstOrDefault(path => !File.Exists(path));
+        if (missing is not null)
+            throw new ShaderConverterException($"the shader converter is missing ({missing}). Unzip the launcher's release again");
 
         var start = new ProcessStartInfo(Executable)
         {
-            WorkingDirectory = Path.GetDirectoryName(Executable)!,
+            WorkingDirectory = Folder,
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardOutput = true,
@@ -35,7 +38,7 @@ public sealed partial class XenosRecompConverter(string executable) : IShaderCon
         };
         foreach (var argument in new[]
                  {
-                     inputDirectory, Path.Combine(outputDirectory, "shader_cache.cpp"), include, Path.Combine(outputDirectory, "hlsl"),
+                     Flag, inputDirectory, Path.Combine(outputDirectory, "shader_cache.cpp"), include, Path.Combine(outputDirectory, "hlsl"),
                  })
             start.ArgumentList.Add(argument);
 

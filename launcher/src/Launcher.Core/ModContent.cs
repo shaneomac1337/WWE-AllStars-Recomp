@@ -5,7 +5,14 @@ using System.Text.RegularExpressions;
 namespace WweAllStars.Launcher.Core;
 
 /// <summary>One file of a mod's <c>content/</c>; <see cref="Shown"/> is its path as the mod lays it out.</summary>
-public sealed record ModContentFile(string Shown, string Path);
+public sealed record ModContentFile(string Shown, string Path)
+{
+    /// <summary>
+    /// The package it was made as, when the file was renamed from another slot; Play writes it
+    /// renamed (package-rename spec). Null for any other file.
+    /// </summary>
+    public string? MadeAs { get; init; }
+}
 
 /// <summary>The combined content a Play installs (load report): its phase and the official packs it took in.</summary>
 public sealed record CombinedContentReport(int Phase, IReadOnlyList<DlcPack> Packs)
@@ -66,7 +73,8 @@ public sealed partial class ModLibrary
     /// content (a flat content installs the same, Spike 11). The launcher writes the TOC and the
     /// phase, so a mod's own are problems.
     /// </summary>
-    private static List<ModContentFile> ReadContent(string folder, KnownGameFiles known, List<string> problems)
+    /// <param name="notes">Gets a line for each package Play renames for its slot.</param>
+    private static List<ModContentFile> ReadContent(string folder, KnownGameFiles known, List<string> problems, List<string> notes)
     {
         var files = new List<ModContentFile>();
         if (!Directory.Exists(folder)) return files;
@@ -91,6 +99,7 @@ public sealed partial class ModLibrary
                 continue;
             }
             byName[name] = shown;
+            string? madeAs = null;
             if (IsFragment(name) && known.KnowsConfigFiles && known.ConfigPathOf(FragmentTarget(name)) is null)
             {
                 problems.Add($"{shown} merges into {FragmentTarget(name)}, which the game doesn't have.");
@@ -113,11 +122,14 @@ public sealed partial class ModLibrary
                         problems.Add($"{shown} is not a game package.");
                         continue;
                     }
-                    if (PackageOrigin.Check(stream, name, known.IsPackage) is { } renamed)
+                    var renamed = PackageOrigin.Check(stream, name, known.IsPackage);
+                    if (renamed is { Renamable: false })
                     {
                         problems.Add(PackageOrigin.Reason(shown, renamed));
                         continue;
                     }
+                    if (renamed is not null) notes.Add(PackageOrigin.Note(name, renamed));
+                    madeAs = renamed?.MadeAs;
                 }
             }
             catch (InvalidDataException)
@@ -130,7 +142,7 @@ public sealed partial class ModLibrary
                 problems.Add($"{shown} could not be read: {error.Message}");
                 continue;
             }
-            files.Add(new ModContentFile(shown, path));
+            files.Add(new ModContentFile(shown, path) { MadeAs = madeAs });
         }
         return files;
     }
@@ -187,6 +199,9 @@ public sealed partial class ModLibrary
     {
         /// <summary>Writes the file's bytes when the content is built (the roster package), instead of <see cref="Bytes"/>.</summary>
         public Func<byte[]>? Make { get; init; }
+
+        /// <summary>The package <see cref="Source"/> was made as: it is written renamed, not linked (package-rename spec).</summary>
+        public string? MadeAs { get; init; }
     }
 
     /// <summary>
@@ -232,7 +247,7 @@ public sealed partial class ModLibrary
         foreach (var mod in contentMods)
         {
             modNumber++;
-            foreach (var package in mod.DlcPackages) files[package.Name] = new(package.Path, null, mod, package.Name);
+            foreach (var package in mod.DlcPackages) files[package.Name] = new(package.Path, null, mod, package.Name) { MadeAs = package.MadeAs };
             foreach (var file in mod.Content)
             {
                 var name = Path.GetFileName(file.Path);
@@ -252,7 +267,7 @@ public sealed partial class ModLibrary
                     else readOnly.Add(new(null, null, mod, file.Shown));
                     continue;
                 }
-                files[IsFragment(name) ? FragmentName(modNumber, name, files) : name] = new(file.Path, null, mod, file.Shown);
+                files[IsFragment(name) ? FragmentName(modNumber, name, files) : name] = new(file.Path, null, mod, file.Shown) { MadeAs = file.MadeAs };
             }
         }
         var roster = AddRoster(files, rosterFiles, AddCharacters);
@@ -304,8 +319,8 @@ public sealed partial class ModLibrary
         foreach (var mod in mods)
         {
             stamp.Append("mod ").Append(mod.Id).Append('\n');
-            foreach (var package in mod.DlcPackages) Add($"{PackagesFolderName}/{package.Name}", package.Path);
-            foreach (var file in mod.Content) Add(file.Shown, file.Path);
+            foreach (var package in mod.DlcPackages) Add(StampLabel($"{PackagesFolderName}/{package.Name}", package.MadeAs), package.Path);
+            foreach (var file in mod.Content) Add(StampLabel(file.Shown, file.MadeAs), file.Path);
         }
         return stamp.ToString();
     }
@@ -324,6 +339,7 @@ public sealed partial class ModLibrary
         {
             var target = Path.Combine(staged, name);
             if ((file.Bytes ?? file.Make?.Invoke()) is { } bytes) File.WriteAllBytes(target, bytes);
+            else if (file.MadeAs is { } madeAs) WriteRenamed(file.Source!, madeAs, target);
             else LinkOrCopy(file.Source!, target);
             if (name.EndsWith(".ini", StringComparison.OrdinalIgnoreCase)) continue;
             toc.Add(string.Create(CultureInfo.InvariantCulture, $"{new FileInfo(target).Length} {UncompressedSize(target)} 0 .\\{name} 0"));

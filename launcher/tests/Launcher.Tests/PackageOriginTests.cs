@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using WweAllStars.Launcher.Core;
 
 namespace WweAllStars.Launcher.Tests;
@@ -21,7 +22,9 @@ public sealed class PackageOriginTests : IDisposable
 
     public void Dispose() => Directory.Delete(_root, recursive: true);
 
-    private ModLibrary Library() => new(_layout, Known, new FakeLinker(), new FakeRecycleBin());
+    private readonly FakeLinker _linker = new();
+
+    private ModLibrary Library() => new(_layout, Known, _linker, new FakeRecycleBin());
 
     private static RenamedPackage? Check(byte[] package, string fileName)
     {
@@ -49,7 +52,7 @@ public sealed class PackageOriginTests : IDisposable
     {
         var package = new TestPackage { Compressed = Enum.Parse<TestPackage.Compression>(compression), MadeAs = "CHR_101_B" }.Bytes();
 
-        Assert.Equal(new RenamedPackage("CHR_101_B.xxx"), Check(package, "CHR_101_A.xxx"));
+        Assert.Equal("CHR_101_B.xxx", Check(package, "CHR_101_A.xxx")?.MadeAs);
     }
 
     [Fact]
@@ -57,7 +60,7 @@ public sealed class PackageOriginTests : IDisposable
     {
         var package = new TestPackage { MadeAs = "My_Own_Wrestler" }.Bytes();
 
-        Assert.Equal(new RenamedPackage(null), Check(package, "CHR_101_A.xxx"));
+        Assert.Equal(new RenamedPackage(null, "the name it was made under is unknown"), Check(package, "CHR_101_A.xxx"));
     }
 
     [Fact]
@@ -94,36 +97,97 @@ public sealed class PackageOriginTests : IDisposable
         var mod = Assert.Single(Library().List());
 
         Assert.False(mod.Enabled);
-        Assert.Equal("packages/CHR_101_A.xxx was made as CHR_101_B.xxx: renaming a package does not replace it.",
-            Assert.Single(mod.Problems));
+        Assert.Equal("packages/CHR_101_A.xxx was made as CHR_101_B.xxx: renaming a package does not replace it, "
+            + "and the launcher can't rename this one: packages compressed as a whole can't be renamed.", Assert.Single(mod.Problems));
         Assert.Throws<LauncherException>(() => Library().SetEnabled("Attire Swap", true));
     }
 
     [Fact]
-    public void A_renamed_content_package_keeps_its_mod_off_with_the_reason()
+    public void A_renamable_replacement_package_installs_with_a_note()
+    {
+        InstalledMod("Backlash Arena", "packages", "CHR_101_A.xxx", new TestPackage { MadeAs = "CHR_101_B" }.Bytes());
+
+        var mod = Assert.Single(Library().List());
+
+        Assert.Empty(mod.Problems);
+        Assert.True(mod.Enabled);
+        Assert.Equal(["CHR_101_A.xxx was made as CHR_101_B.xxx; the launcher renames it for this slot."], mod.Notes);
+        Assert.Equal("CHR_101_B.xxx", Assert.Single(mod.Packages).MadeAs);
+    }
+
+    [Fact]
+    public void A_renamed_replacement_package_that_cant_be_renamed_says_why()
+    {
+        InstalledMod("Attire Swap", "packages", "CHR_101_A.xxx",
+            new TestPackage { MadeAs = "CHR_101_B", ExtraNames = ["CHR_101_B_FX"] }.Bytes());
+
+        var mod = Assert.Single(Library().List());
+
+        Assert.False(mod.Enabled);
+        Assert.Equal("packages/CHR_101_A.xxx was made as CHR_101_B.xxx: renaming a package does not replace it, "
+            + "and the launcher can't rename this one: its name table also names CHR_101_B in CHR_101_B_FX.", Assert.Single(mod.Problems));
+        Assert.Empty(mod.Notes);
+    }
+
+    [Fact]
+    public void A_renamed_content_package_that_cant_be_renamed_keeps_its_mod_off_with_the_reason()
+    {
+        InstalledMod("New Wrestler", "content", "CHR_301_A.xxx", new TestPackage { MadeAs = "CHR_101_A", ExtraNames = ["CHR_101_A_FX"] }.Bytes());
+
+        var mod = Assert.Single(Library().List());
+
+        Assert.False(mod.Enabled);
+        Assert.Equal("content/CHR_301_A.xxx was made as CHR_101_A.xxx: renaming a package does not replace it, "
+            + "and the launcher can't rename this one: its name table also names CHR_1 in CHR_101_A_FX.", Assert.Single(mod.Problems));
+    }
+
+    [Fact]
+    public void A_renamable_content_package_installs_with_a_note()
     {
         InstalledMod("New Wrestler", "content", "CHR_301_A.xxx", new TestPackage { MadeAs = "CHR_101_A" }.Bytes());
 
         var mod = Assert.Single(Library().List());
 
-        Assert.False(mod.Enabled);
-        Assert.Equal("content/CHR_301_A.xxx was made as CHR_101_A.xxx: renaming a package does not replace it.",
-            Assert.Single(mod.Problems));
+        Assert.Empty(mod.Problems);
+        Assert.Equal(["CHR_301_A.xxx was made as CHR_101_A.xxx; the launcher renames it for this slot."], mod.Notes);
+        Assert.Equal("CHR_101_A.xxx", Assert.Single(mod.Content).MadeAs);
     }
 
     [Fact]
-    public void A_mod_with_a_renamed_package_is_refused_at_install()
+    public void A_mod_with_a_renamable_package_installs_as_the_modder_sent_it()
+    {
+        var zip = Path.Combine(_root, "swap.zip");
+        var package = new TestPackage { MadeAs = "CHR_101_B" }.Bytes();
+        TestArchives.Zip(zip,
+            ("mod.toml", "name = \"Attire Swap\"\nversion = \"1.0\"\ngame = \"TU2\"\nkind = \"cosmetic\"\n"u8.ToArray()),
+            ("packages/CHR_101_A.xxx", package));
+        var library = Library();
+
+        using (var intake = library.Inspect([zip], _cancel))
+        {
+            Assert.Empty(intake.Refusals);
+            library.Install(Assert.Single(intake.Mods), _cancel);
+        }
+
+        var mod = Assert.Single(library.List());
+        Assert.Equal(["CHR_101_A.xxx was made as CHR_101_B.xxx; the launcher renames it for this slot."], mod.Notes);
+        Assert.Equal(package, File.ReadAllBytes(Path.Combine(_layout.ModsDirectory, "Attire Swap", "packages", "CHR_101_A.xxx")));
+    }
+
+    [Fact]
+    public void A_mod_with_a_package_that_cant_be_renamed_is_refused_at_install_with_the_reason()
     {
         var zip = Path.Combine(_root, "swap.zip");
         TestArchives.Zip(zip,
             ("mod.toml", "name = \"Attire Swap\"\nversion = \"1.0\"\ngame = \"TU2\"\nkind = \"cosmetic\"\n"u8.ToArray()),
-            ("packages/CHR_101_A.xxx", new TestPackage { MadeAs = "CHR_101_B" }.Bytes()));
+            ("packages/CHR_101_A.xxx", new TestPackage { MadeAs = "CHR_101_B", ExtraNames = ["CHR_101_B_FX"] }.Bytes()));
         var library = Library();
 
         using var intake = library.Inspect([zip], _cancel);
 
         Assert.Empty(intake.Mods);
-        Assert.Equal("Attire Swap: packages/CHR_101_A.xxx was made as CHR_101_B.xxx: renaming a package does not replace it.",
+        Assert.Equal("Attire Swap: packages/CHR_101_A.xxx was made as CHR_101_B.xxx: renaming a package does not replace it, "
+            + "and the launcher can't rename this one: its name table also names CHR_101_B in CHR_101_B_FX.",
             Assert.Single(intake.Refusals).Reason);
         Assert.False(Directory.Exists(Path.Combine(_layout.ModsDirectory, "Attire Swap")));
     }
@@ -140,8 +204,24 @@ public sealed class PackageOriginTests : IDisposable
         using var intake = library.Inspect([zip], _cancel);
 
         Assert.Empty(intake.Wraps);
-        Assert.Equal("CHR_101_A.xxx was made as CHR_101_B.xxx: renaming a package does not replace it.",
+        Assert.Equal("CHR_101_A.xxx was made as CHR_101_B.xxx: renaming a package does not replace it, "
+            + "and the launcher can't rename this one: packages compressed as a whole can't be renamed.",
             Assert.Single(intake.Refusals).Reason);
+    }
+
+    [Fact]
+    public void Loose_renamable_packages_are_offered_for_wrapping()
+    {
+        var zip = Path.Combine(_root, "loose.zip");
+        TestArchives.Zip(zip,
+            ("CHR_101_A.xxx", new TestPackage { Compressed = TestPackage.Compression.Chunks, MadeAs = "CHR_101_B" }.Bytes()),
+            ("UI_SHELL.xxx", new TestPackage().Bytes("UI_SHELL.xxx")));
+        var library = Library();
+
+        using var intake = library.Inspect([zip], _cancel);
+
+        Assert.Empty(intake.Refusals);
+        Assert.Equal(["packages/CHR_101_A.xxx", "packages/UI_SHELL.xxx"], Assert.Single(intake.Wraps).Files.Order(StringComparer.Ordinal));
     }
 
     [Fact]
@@ -155,6 +235,69 @@ public sealed class PackageOriginTests : IDisposable
 
         Assert.Empty(intake.Refusals);
         Assert.Equal(["packages/CHR_101_A.xxx"], Assert.Single(intake.Wraps).Files);
+    }
+
+    /// <summary>A stand-in for Title Update 2's folder with its TOC.</summary>
+    private string Tu2()
+    {
+        var folder = _layout.UpdateDataDirectory;
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "PatchTOC.txt"), "458752 0 0 .\\UI_SHELL.xxx 0 \r\n");
+        File.WriteAllText(Path.Combine(folder, "UI_SHELL.xxx"), "tu2 shell");
+        return folder;
+    }
+
+    [Theory]
+    [InlineData("None")]
+    [InlineData("Chunks")]
+    public void Play_writes_a_renamable_package_renamed_for_its_slot_with_its_own_PatchTOC_sizes(string compression)
+    {
+        var sent = new TestPackage { Compressed = Enum.Parse<TestPackage.Compression>(compression), MadeAs = "CHR_101_B" }.Bytes();
+        InstalledMod("Attire Swap", "packages", "CHR_101_A.xxx", sent);
+
+        var prepared = Library().PrepareForPlay(Tu2(), online: false);
+
+        var written = Path.Combine(prepared.UpdateDataRoot, "CHR_101_A.xxx");
+        using (var stream = File.OpenRead(written)) Assert.Null(PackageOrigin.Check(stream, "CHR_101_A.xxx", Known.IsPackage));
+        Assert.DoesNotContain(_linker.Links, link => link.Link == written);
+        Assert.Equal(sent, File.ReadAllBytes(Path.Combine(_layout.ModsDirectory, "Attire Swap", "packages", "CHR_101_A.xxx")));
+        var line = File.ReadAllText(Path.Combine(prepared.UpdateDataRoot, "PatchTOC.txt"))
+            .Split("\r\n").Single(line => line.EndsWith(@".\CHR_101_A.xxx 0 ", StringComparison.Ordinal));
+        Assert.Equal($"{new FileInfo(written).Length} 0 0 .\\CHR_101_A.xxx 0 ", line);
+        Assert.Equal(["CHR_101_A.xxx"], Assert.Single(prepared.Report.Used).Files);
+    }
+
+    [Fact]
+    public void A_package_that_fails_to_rename_at_Play_leaves_no_half_written_copy()
+    {
+        var sent = new TestPackage { Compressed = TestPackage.Compression.TwoChunks, MadeAs = "CHR_101_B" }.Bytes();
+        // The second chunk's block one byte short: its header passes the install's check, the block does not expand.
+        var block = PackageRenameTests.Chunks(sent)[1].CompressedOffset + 16;
+        BinaryPrimitives.WriteInt32BigEndian(sent.AsSpan(block), BinaryPrimitives.ReadInt32BigEndian(sent.AsSpan(block)) - 1);
+        InstalledMod("Attire Swap", "packages", "CHR_101_A.xxx", sent);
+        var library = Library();
+        Assert.True(Assert.Single(library.List()).Enabled);
+
+        var error = Assert.Throws<LauncherException>(() => library.PrepareForPlay(Tu2(), online: false));
+
+        Assert.Contains("CHR_101_A.xxx could not be renamed from CHR_101_B.xxx", error.Message);
+        Assert.False(File.Exists(Path.Combine(library.OverlayDirectory + ".partial", "CHR_101_A.xxx")));
+    }
+
+    [Fact]
+    public void The_renamed_copy_is_kept_until_the_update_folder_is_rebuilt()
+    {
+        InstalledMod("Attire Swap", "packages", "CHR_101_A.xxx",
+            new TestPackage { Compressed = TestPackage.Compression.Chunks, MadeAs = "CHR_101_B" }.Bytes());
+        var tu2 = Tu2();
+        var library = Library();
+        var written = Path.Combine(library.PrepareForPlay(tu2, online: false).UpdateDataRoot, "CHR_101_A.xxx");
+        var first = File.GetLastWriteTimeUtc(written);
+        File.SetLastWriteTimeUtc(written, first.AddHours(-1));
+
+        library.PrepareForPlay(tu2, online: false);
+
+        Assert.Equal(first.AddHours(-1), File.GetLastWriteTimeUtc(written));
     }
 
     private static readonly string Disc = FindDisc();

@@ -40,7 +40,7 @@ public static class ReleaseCheck
         "WWEAllStarsLauncher.exe", "libSkiaSharp.dll", "libHarfBuzzSharp.dll", "av_libglesv2.dll",
         "README.txt", LicenseFile,
         "game/" + PortableLayout.GameExecutableName,
-        "xenosrecomp/" + XenosRecompConverter.ExecutableName, "xenosrecomp/dxcompiler.dll", "xenosrecomp/fmt.dll",
+        "xenosrecomp/" + XenosRecompConverter.CompilerName,
         "xenosrecomp/" + XenosRecompConverter.IncludeName,
     ];
 

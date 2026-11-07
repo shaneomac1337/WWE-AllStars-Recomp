@@ -256,25 +256,15 @@ std::vector<ShaderPack> LoadConverted(const std::filesystem::path& folder,
   return packs;
 }
 
-std::optional<Converter> FindConverter(const std::filesystem::path& game_directory,
-                                       const std::filesystem::path& named,
-                                       const Converter& dev) {
-  constexpr char kExecutable[] = "XenosRecomp.exe";
-  constexpr char kInclude[] = "shader_common.h";
-  const std::filesystem::path release = game_directory.parent_path() / "xenosrecomp";
-  std::vector<Converter> candidates;
-  if (!named.empty()) {
-    candidates.push_back({named, named.parent_path() / kInclude});
-  }
-  candidates.push_back({release / kExecutable, release / kInclude});
-  if (!dev.executable.empty()) {
-    candidates.push_back(dev);
-  }
-  for (const Converter& candidate : candidates) {
+std::optional<Converter> FindConverter(const std::filesystem::path& game_executable,
+                                       const std::filesystem::path& named_include,
+                                       const std::filesystem::path& dev_include) {
+  const std::filesystem::path release =
+      game_executable.parent_path().parent_path() / "xenosrecomp" / "shader_common.h";
+  for (const std::filesystem::path& include : {named_include, release, dev_include}) {
     std::error_code error;
-    if (std::filesystem::is_regular_file(candidate.executable, error) &&
-        std::filesystem::is_regular_file(candidate.include, error)) {
-      return candidate;
+    if (!include.empty() && std::filesystem::is_regular_file(include, error)) {
+      return Converter{game_executable, include};
     }
   }
   return std::nullopt;

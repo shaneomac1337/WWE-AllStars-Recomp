@@ -539,6 +539,36 @@ public sealed class ModContentTests : IDisposable
         Assert.Contains("mod 1: Cody 1.0 (Cody): CHR_101_A.xxx, CHR_219_A.xxx", prepared.Report.Lines());
     }
 
+    [Fact]
+    public void A_renamable_content_package_goes_into_the_combined_content_renamed_with_its_own_TOC_sizes()
+    {
+        var tu2 = Tu2();
+        var sent = new TestPackage { Compressed = TestPackage.Compression.Chunks, MadeAs = "CHR_101_A" }.Bytes();
+        ContentMod("Wrestler", ("Wrestler/CHR_120_A.xxx", sent));
+
+        LibraryWithOn("Wrestler").PrepareForPlay(tu2, online: false);
+
+        var written = Path.Combine(Combined, "CHR_120_A.xxx");
+        using (var stream = File.OpenRead(written)) Assert.Null(PackageOrigin.Check(stream, "CHR_120_A.xxx", Known.IsPackage));
+        Assert.DoesNotContain(_linker.Links, link => link.Link.EndsWith("CHR_120_A.xxx", StringComparison.Ordinal));
+        Assert.Contains($@"{new FileInfo(written).Length} 0 0 .\CHR_120_A.xxx 0", TocLines());
+        Assert.Equal(sent, File.ReadAllBytes(Path.Combine(_layout.ModsDirectory, "Wrestler", "content", "Wrestler", "CHR_120_A.xxx")));
+    }
+
+    [Fact]
+    public void A_renamable_package_a_pack_ships_goes_into_the_combined_content_renamed()
+    {
+        var tu2 = Tu2();
+        Pack1WithCody();
+        PackageMod("Cody", "cosmetic", ("CHR_219_A.xxx", new TestPackage { MadeAs = "CHR_101_A" }.Bytes()));
+
+        LibraryWithOn("Cody").PrepareForPlay(tu2, online: false);
+
+        var written = Path.Combine(Combined, "CHR_219_A.xxx");
+        using (var stream = File.OpenRead(written)) Assert.Null(PackageOrigin.Check(stream, "CHR_219_A.xxx", Known.IsPackage));
+        Assert.Contains($@"{new FileInfo(written).Length} 0 0 .\CHR_219_A.xxx 0", TocLines());
+    }
+
     /// <summary>Drops <paramref name="files"/> as one zip on the Mods tab and installs its loose-file wrap.</summary>
     private ModInfo WrapZip(ModLibrary library, params (string Name, byte[] Bytes)[] files)
     {

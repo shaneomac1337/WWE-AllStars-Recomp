@@ -28,7 +28,14 @@ public enum ModKind
 public sealed record ModManifest(string Name, string Author, string Version, string Description, string Game, ModKind Kind);
 
 /// <summary>One replacement package a mod supplies, by the short name the game knows it by.</summary>
-public sealed record ModPackage(string Name, string Path, long Size, long UncompressedSize);
+public sealed record ModPackage(string Name, string Path, long Size, long UncompressedSize)
+{
+    /// <summary>
+    /// The package it was made as, when the file was renamed from another slot; Play writes it
+    /// renamed (package-rename spec). Null for a package under its own name.
+    /// </summary>
+    public string? MadeAs { get; init; }
+}
 
 /// <summary>
 /// One mod in <c>mods/</c>, in load order. A mod with a problem is never used, and reads as off.
@@ -44,6 +51,12 @@ public sealed record ModInfo(
 {
     /// <summary>The mod's <c>config/</c> files, which Play merges into the Coalesced bundles.</summary>
     public IReadOnlyList<ModConfigFile> Config { get; init; } = [];
+
+    /// <summary>
+    /// What the Mods tab lists under the mod that is no problem: each package made as another
+    /// slot's, which Play renames (package-rename spec).
+    /// </summary>
+    public IReadOnlyList<string> Notes { get; init; } = [];
 
     /// <summary>The mod's <c>content/</c> files, which Play builds into the combined content.</summary>
     public IReadOnlyList<ModContentFile> Content { get; init; } = [];
@@ -146,12 +159,13 @@ public sealed partial class ModLibrary(PortableLayout layout, KnownGameFiles kno
     {
         var folder = Path.Combine(layout.ModsDirectory, entry.Id);
         var problems = new List<string>();
+        var notes = new List<string>();
         var known = _known.WithPackages(packPackages);
         var manifest = ModManifestReader.Read(Path.Combine(folder, ManifestFileName), problems);
-        var packages = ReadPackages(Path.Combine(folder, PackagesFolderName), known, problems);
+        var packages = ReadPackages(Path.Combine(folder, PackagesFolderName), known, problems, notes);
         var config = ReadConfig(Path.Combine(folder, ConfigFolderName), problems);
         var contentFolder = Path.Combine(folder, ContentFolderName);
-        var content = ReadContent(contentFolder, known, problems);
+        var content = ReadContent(contentFolder, known, problems, notes);
         CheckCodeNames(content, problems);
         var addsContent = Directory.Exists(contentFolder) && Directory.EnumerateFiles(contentFolder, "*", SearchOption.AllDirectories).Any();
         var dlcPackages = packages.Where(package => packPackages.Contains(package.Name)).ToList();
@@ -160,6 +174,7 @@ public sealed partial class ModLibrary(PortableLayout layout, KnownGameFiles kno
         {
             Kind = kind,
             ForcedGameplayReason = forcedReason,
+            Notes = notes,
             Config = config,
             Content = content,
             DlcPackages = dlcPackages,
@@ -179,7 +194,8 @@ public sealed partial class ModLibrary(PortableLayout layout, KnownGameFiles kno
     /// The mod's <c>packages/</c>: flat <c>.xxx</c> files with safe names, each a package (the
     /// tag in either byte order) replacing one the disc, TU2 or an installed official pack has.
     /// </summary>
-    private static List<ModPackage> ReadPackages(string folder, KnownGameFiles known, List<string> problems)
+    /// <param name="notes">Gets a line for each package Play renames for its slot.</param>
+    private static List<ModPackage> ReadPackages(string folder, KnownGameFiles known, List<string> problems, List<string> notes)
     {
         var packages = new List<ModPackage>();
         if (!Directory.Exists(folder)) return packages;
@@ -229,12 +245,13 @@ public sealed partial class ModLibrary(PortableLayout layout, KnownGameFiles kno
                 problems.Add($"{shown} is not a game package.");
                 continue;
             }
-            if (renamed is not null)
+            if (renamed is { Renamable: false })
             {
                 problems.Add(PackageOrigin.Reason(shown, renamed));
                 continue;
             }
-            packages.Add(new ModPackage(name, path, size, uncompressed.Value));
+            if (renamed is not null) notes.Add(PackageOrigin.Note(name, renamed));
+            packages.Add(new ModPackage(name, path, size, uncompressed.Value) { MadeAs = renamed?.MadeAs });
         }
         return packages;
     }

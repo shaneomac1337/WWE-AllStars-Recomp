@@ -115,6 +115,13 @@ a row in the game's own OPTIONS menu. Display mode, VSync, sharpening, texture f
 sound and vibration change at once; the rest apply at the next start. The launcher and the
 game share one settings file.
 
+### Fill screen
+
+**Fill screen (crop edges)** on the DISPLAY tab crops up to 5% of the picture from each side
+instead of showing black bars. This fills a 16:10 screen; wider or squarer screens keep smaller
+bars. Parts of the HUD can sit close to the edge. It is off by default and a 16:9 screen shows
+no change.
+
 ### Keyboard
 
 The keyboard plays as player 1's controller, alongside any pad, while the game window has

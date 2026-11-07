@@ -39,6 +39,8 @@ python scripts/inspect_disc.py <iso> --extract-all assets
   `f5337cdc` with this repo's `patches/` applied.
   `.tools/xenia-canary/` holds the reference emulator (binary only, no source).
   `.tools/dotnet-sdk/` is the launcher's .NET SDK, pinned by `launcher/global.json`.
+- `src/native/shader_convert_mode.*`: XenosRecomp runs inside `wweallstars.exe`
+  (`--wwe_convert_shaders`, ADR-0029). Never ship a standalone converter exe: Defender flags it.
 - `launcher/`: the Avalonia launcher (ADR-0018): `Launcher.Core` (UI-free, tested),
   `Launcher.App` (views), `tests/Launcher.Tests` (xUnit).
 - `art/icon/`: the original icon of both exes; `make_icon.py` is the source and
@@ -87,11 +89,7 @@ python scripts/inspect_disc.py <iso> --extract-all assets
 - Xenia reports a stuck audio loop. Canary's patch writes `li r3,1` at
   `0x833A6C98` in the base XEX, which is `0x833A9B50` in TU2 (same code).
 
-## Agent skills
-
-### Issue tracker
-
-Local markdown under `.scratch/<feature>/`, committed to `main`. The public GitHub history is built without it (`scripts/publish-tree.ps1`, ADR-0023). See `docs/agents/issue-tracker.md`, also before writing a spec or tickets (what the player sees, how much game testing a ticket plans).
+## Agent docs
 
 ### Releasing
 
@@ -100,11 +98,3 @@ Version bump, package, public push and GitHub release, in order: `docs/agents/re
 ### Performance A/B
 
 Comparing builds or releases for speed or frame pacing: `docs/agents/ab-match.md`.
-
-### Triage labels
-
-The five default roles (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`) as `Status:` lines. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context: `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.

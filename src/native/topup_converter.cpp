@@ -20,16 +20,16 @@
 #include <rex/logging.h>
 
 #include "native/pipelines.h"
+#include "native/shader_convert_mode.h"
 #include "native/shader_library.h"
 #include "native/shader_topup.h"
 
 REXCVAR_DEFINE_BOOL(wwe_live_shader_topups, true, "WWEAllStars",
                     "Convert shaders the shader pack lacks (the autosave icon, the splash) with "
                     "XenosRecomp during the session, so they show without a restart");
-REXCVAR_DEFINE_STRING(wwe_xenosrecomp, "", "WWEAllStars",
-                      "XenosRecomp.exe for live shader top-ups, with shader_common.h beside it "
-                      "(default: the release's xenosrecomp folder beside game, then the dev "
-                      "build's)");
+REXCVAR_DEFINE_STRING(wwe_shader_common, "", "WWEAllStars",
+                      "shader_common.h for live shader top-ups (default: the release's xenosrecomp "
+                      "folder beside game, then the dev build's)");
 
 namespace wwe::native::topup_converter {
 
@@ -60,11 +60,11 @@ State& S() {
   return *state;
 }
 
-fs::path GameDirectory() {
+fs::path GameExecutable() {
 #ifdef _WIN32
   wchar_t path[MAX_PATH * 4];
   const DWORD length = GetModuleFileNameW(nullptr, path, DWORD(std::size(path)));
-  return length ? fs::path(std::wstring(path, length)).parent_path() : fs::path();
+  return length ? fs::path(std::wstring(path, length)) : fs::path();
 #else
   return {};
 #endif
@@ -81,35 +81,60 @@ std::string RunConverter(const live_topup::Converter& converter, const fs::path&
 #ifdef _WIN32
   std::error_code error;
   fs::create_directories(output / "hlsl", error);
-  std::wstring command;
+  std::wstring command =
+      L"\"" + converter.executable.wstring() + L"\" " + kConvertShadersFlag + L" ";
   for (const fs::path& argument :
-       {converter.executable, input, output / "shader_cache.cpp", converter.include,
+       {input, output / "shader_cache.cpp", converter.include,
         output / "hlsl"}) {
     command += L"\"" + argument.wstring() + L"\" ";
   }
   SECURITY_ATTRIBUTES inherit = {sizeof(inherit), nullptr, TRUE};
   const HANDLE log = CreateFileW((output / "run.log").c_str(), GENERIC_WRITE, FILE_SHARE_READ,
                                  &inherit, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-  STARTUPINFOW startup = {sizeof(startup)};
-  startup.dwFlags = STARTF_USESTDHANDLES;
-  startup.hStdOutput = log;
-  startup.hStdError = log;
-  startup.hStdInput = nullptr;
+  STARTUPINFOEXW startup = {};
+  startup.StartupInfo.cb = sizeof(startup);
+  startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+  startup.StartupInfo.hStdOutput = log;
+  startup.StartupInfo.hStdError = log;
+  startup.StartupInfo.hStdInput = nullptr;
+  // The process starts inside the job (it ends with the game), and only the log handle is
+  // inherited. Starting it suspended, joining the job and resuming is the pattern of process
+  // injection, which Windows Defender's model reads as a trojan (Trojan:Win32/Bearfoos.B!ml).
+  HANDLE job = S().job;
+  HANDLE inherited[] = {log};
+  SIZE_T attributes_size = 0;
+  InitializeProcThreadAttributeList(nullptr, 2, 0, &attributes_size);
+  std::vector<uint8_t> attributes(attributes_size);
+  auto* list = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(attributes.data());
+  bool have_list = InitializeProcThreadAttributeList(list, 2, 0, &attributes_size);
+  if (have_list && job) {
+    have_list = UpdateProcThreadAttribute(list, 0, PROC_THREAD_ATTRIBUTE_JOB_LIST, &job,
+                                          sizeof(job), nullptr, nullptr);
+  }
+  if (have_list && log != INVALID_HANDLE_VALUE) {
+    have_list = UpdateProcThreadAttribute(list, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inherited,
+                                          sizeof(inherited), nullptr, nullptr);
+  }
+  startup.lpAttributeList = have_list ? list : nullptr;
   PROCESS_INFORMATION process = {};
-  const fs::path directory = converter.executable.parent_path();
-  const BOOL started = CreateProcessW(converter.executable.c_str(), command.data(), nullptr,
-                                      nullptr, TRUE, CREATE_NO_WINDOW | CREATE_SUSPENDED,
-                                      nullptr, directory.c_str(), &startup, &process);
+  const fs::path directory = converter.include.parent_path();
+  const BOOL started = CreateProcessW(
+      converter.executable.c_str(), command.data(), nullptr, nullptr, TRUE,
+      CREATE_NO_WINDOW | (have_list ? EXTENDED_STARTUPINFO_PRESENT : 0), nullptr,
+      directory.c_str(), &startup.StartupInfo, &process);
+  const DWORD start_error = GetLastError();
+  if (have_list) {
+    DeleteProcThreadAttributeList(list);
+  }
   if (log != INVALID_HANDLE_VALUE) {
     CloseHandle(log);
   }
   if (!started) {
-    return "XenosRecomp did not start (error " + std::to_string(GetLastError()) + ")";
+    return "XenosRecomp did not start (error " + std::to_string(start_error) + ")";
   }
-  if (S().job) {
-    AssignProcessToJobObject(S().job, process.hProcess);
+  if (job && !have_list) {
+    AssignProcessToJobObject(job, process.hProcess);
   }
-  ResumeThread(process.hThread);
   CloseHandle(process.hThread);
   std::string why;
   if (WaitForSingleObject(process.hProcess, kTimeoutMs) != WAIT_OBJECT_0) {
@@ -217,15 +242,16 @@ void Configure(const fs::path& cache_root, uint64_t converter_id) {
   if (!REXCVAR_GET(wwe_live_shader_topups) || cache_root.empty()) {
     return;
   }
-  const live_topup::Converter dev{
-#if defined(WWE_DEV_XENOSRECOMP) && defined(WWE_DEV_XENOSRECOMP_INCLUDE)
-      WWE_DEV_XENOSRECOMP, WWE_DEV_XENOSRECOMP_INCLUDE
+  const fs::path dev_include =
+#ifdef WWE_DEV_XENOSRECOMP_INCLUDE
+      WWE_DEV_XENOSRECOMP_INCLUDE;
+#else
+      fs::path();
 #endif
-  };
   const auto converter = live_topup::FindConverter(
-      GameDirectory(), fs::path(REXCVAR_GET(wwe_xenosrecomp)), dev);
+      GameExecutable(), fs::path(REXCVAR_GET(wwe_shader_common)), dev_include);
   if (!converter) {
-    REXLOG_WARN("shader top-up: XenosRecomp not found, so shaders the pack lacks wait for the "
+    REXLOG_WARN("shader top-up: shader_common.h not found, so shaders the pack lacks wait for the "
                 "launcher's next shader step");
     return;
   }
@@ -244,7 +270,7 @@ void Configure(const fs::path& cache_root, uint64_t converter_id) {
   }
 #endif
   s.enabled = true;
-  REXLOG_INFO("shader top-up: live conversion with {}", s.converter.executable.string());
+  REXLOG_INFO("shader top-up: live conversion with {}", s.converter.include.string());
 }
 
 void Offer(const uint8_t* container, size_t size, bool is_pixel_shader) {

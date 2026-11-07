@@ -6,7 +6,9 @@ param(
     # Another directory keeps a second build, e.g. a baseline for
     # scripts/shader_regen_diff.py.
     [string]$BuildDirectory = 'out/build/xenosrecomp',
-    [ValidateRange(1, 64)][int]$Jobs = 4
+    [ValidateRange(1, 64)][int]$Jobs = 4,
+    [bool]$Identity = $true,
+    [ValidateSet('static', 'shared')][string]$Fmt = 'shared'
 )
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot/Invoke-Hidden.ps1"
@@ -37,7 +39,13 @@ $env:PATH = "$llvm;$cmakeRoot/Ninja;$($msvc.FullName)/bin/Hostx64/x64;$WindowsSd
 $env:INCLUDE = "$($msvc.FullName)/include;$sdkInclude/ucrt;$sdkInclude/shared;$sdkInclude/um;$sdkInclude/winrt"
 $env:LIB = "$($msvc.FullName)/lib/x64;$sdkLib/ucrt/x64;$sdkLib/um/x64"
 $build = if ([IO.Path]::IsPathRooted($BuildDirectory)) { $BuildDirectory } else { "$projectRoot/$BuildDirectory" }
-Invoke-Hidden $cmake @('-S', $source, '-B', $build, '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release',
-    '-DCMAKE_C_COMPILER=clang', '-DCMAKE_CXX_COMPILER=clang++', '-DCMAKE_CXX_FLAGS=-DSVR2011_RECOMP', '-DXENOS_RECOMP_DXIL=OFF') -LogPath "$projectRoot/analysis/configure-xenosrecomp.log"
+New-Item -ItemType Directory -Force $build | Out-Null
+$resource = "$build/XenosRecomp.res"
+if ($Identity) {
+    Invoke-Hidden "$llvm/llvm-rc.exe" @('/nologo', '/fo', $resource, "$PSScriptRoot/xenosrecomp/XenosRecomp.rc") -LogPath "$projectRoot/analysis/rc-xenosrecomp.log"
+}
+$linkFlags = if ($Identity) { @("-DCMAKE_EXE_LINKER_FLAGS=$resource") } else { @() }
+Invoke-Hidden $cmake (@('-S', $source, '-B', $build, '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release',
+    '-DCMAKE_C_COMPILER=clang', '-DCMAKE_CXX_COMPILER=clang++', '-DCMAKE_CXX_FLAGS=-DSVR2011_RECOMP', '-DXENOS_RECOMP_DXIL=OFF', $(if ($Fmt -eq 'static') { '-DBUILD_SHARED_LIBS=OFF' } else { '-DBUILD_SHARED_LIBS=ON' })) + $linkFlags) -LogPath "$projectRoot/analysis/configure-xenosrecomp.log"
 Invoke-Hidden $cmake @('--build', $build, '--parallel', "$Jobs") -LogPath "$projectRoot/analysis/build-xenosrecomp.log"
 Write-Output "XenosRecomp built: $build/XenosRecomp/XenosRecomp.exe"

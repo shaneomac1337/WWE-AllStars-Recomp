@@ -1,4 +1,4 @@
-// Faster starts (.scratch/faster-starts/spec.md): Shorter loading screens (ticket 03) cuts
+// Faster starts: Shorter loading screens (ticket 03) cuts
 // three fixed Kismet waits of the pre-match load to one tick: the 2.0 s output-link delay
 // before the intro movie (Streaming_Assets), and the 5.0 s and 3.0 s SeqAct_Delays of
 // Spwn_Sys' Game_Settings (loading-times.md §1). Each is matched by the object it belongs to

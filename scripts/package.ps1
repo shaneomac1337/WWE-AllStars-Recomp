@@ -1,5 +1,5 @@
 # Build the portable release zip in one command (spec, "Packaging"; ADR-0014, ADR-0018):
-# builds the game (RelWithDebInfo, Vulkan), the launcher and XenosRecomp, stages
+# builds the game (RelWithDebInfo, Vulkan) and the launcher, stages
 #   WWEAllStarsLauncher.exe + its native DLLs, game/, xenosrecomp/, README.txt, licenses/
 # under out/release/<name>/, fails if any game-derived file is staged (Launcher.ReleaseCheck),
 # then writes out/release/<name>.zip and <name>.zip.sha256. Symbols stay local in
@@ -24,18 +24,16 @@ if (!$SkipBuild) {
     & "$PSScriptRoot/build.ps1" -Action Configure -VisualStudioRoot $VisualStudioRoot
     & "$PSScriptRoot/build.ps1" -Action Build -Jobs $Jobs -VisualStudioRoot $VisualStudioRoot
     & "$PSScriptRoot/build.ps1" -Action Launcher -Jobs $Jobs
-    & "$PSScriptRoot/build-xenosrecomp.ps1" -Jobs $Jobs -VisualStudioRoot $VisualStudioRoot
 }
 Set-Location $projectRoot
 $gameBuild = "$projectRoot/out/build/win-amd64-relwithdebinfo-vulkan"
 $launcherBuild = "$projectRoot/out/launcher/publish"
-$xenosRecompBuild = "$projectRoot/out/build/xenosrecomp/XenosRecomp"
+$converterCompiler = "$projectRoot/.tools/xenosrecomp/thirdparty/dxc-bin/bin/x64/dxcompiler.dll"
 # RelWithDebInfo runtime DLLs carry the SDK's "rd" suffix.
-$gameFiles = @('wweallstars.exe', 'rexruntimerd.dll', 'rexgpu-xenosrd.dll', 'TracyClientrd.dll', 'pipeline-keys.txt')
+$gameFiles = @('wweallstars.exe', 'rexruntimerd.dll', 'rexgpu-xenosrd.dll', 'pipeline-keys.txt')
 $launcherFiles = @('WWEAllStarsLauncher.exe', 'libSkiaSharp.dll', 'libHarfBuzzSharp.dll', 'av_libglesv2.dll')
-$xenosRecompFiles = @('XenosRecomp.exe', 'dxcompiler.dll', 'fmt.dll')
 foreach ($path in @($gameFiles | ForEach-Object { "$gameBuild/$_" }) + @($launcherFiles | ForEach-Object { "$launcherBuild/$_" }) +
-    @($xenosRecompFiles | ForEach-Object { "$xenosRecompBuild/$_" }) + "$projectRoot/.tools/xenosrecomp/XenosRecomp/shader_common.h") {
+    $converterCompiler + "$projectRoot/.tools/xenosrecomp/XenosRecomp/shader_common.h") {
     if (!(Test-Path -LiteralPath $path)) { throw "Missing $path. Run without -SkipBuild." }
 }
 
@@ -57,11 +55,11 @@ New-Item -ItemType Directory -Force "$stage/game", "$stage/xenosrecomp", "$stage
 # (The PC SETTINGS file lives in the user data folder, not here.)
 foreach ($file in $gameFiles) { Copy-Item -LiteralPath "$gameBuild/$file" -Destination "$stage/game" }
 foreach ($file in $launcherFiles) { Copy-Item -LiteralPath "$launcherBuild/$file" -Destination $stage }
-# The launcher runs XenosRecomp from xenosrecomp/ beside it, with shader_common.h in the same folder.
-foreach ($file in $xenosRecompFiles) { Copy-Item -LiteralPath "$xenosRecompBuild/$file" -Destination "$stage/xenosrecomp" }
+# XenosRecomp lives inside the game exe (ADR-0029); xenosrecomp/ holds the two files it reads.
+Copy-Item -LiteralPath $converterCompiler -Destination "$stage/xenosrecomp"
 Copy-Item -LiteralPath "$projectRoot/.tools/xenosrecomp/XenosRecomp/shader_common.h" -Destination "$stage/xenosrecomp"
 
-# App-local Visual C++ runtime for the game and XenosRecomp, so players need no installer.
+# App-local Visual C++ runtime for the game and dxcompiler.dll, so players need no installer.
 $redist = Get-ChildItem "$VisualStudioRoot/VC/Redist/MSVC" -Directory |
     Where-Object { $_.Name -match '^\d+\.\d+\.\d+$' } | Sort-Object { [version]$_.Name } -Descending |
     ForEach-Object { Get-ChildItem "$($_.FullName)/x64" -Directory -Filter 'Microsoft.VC*.CRT' } | Select-Object -First 1

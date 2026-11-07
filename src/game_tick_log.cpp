@@ -23,10 +23,14 @@
 #include "generated/default/wweallstars_pch.h"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <utility>
+#include <vector>
 
 #include <rex/cvar.h>
 #include <rex/hook.h>
@@ -44,12 +48,13 @@ REXCVAR_DEFINE_BOOL(wwe_limiter_sleep, true, "WWEAllStars",
                     "Let the game thread's frame waits (the 60 Hz limiter and the wait on the "
                     "render thread) sleep instead of spinning a host core (false: the game's "
                     "own appSleep(0) yield loops, for comparisons)");
-REXCVAR_DEFINE_INT32(wwe_120fps_fixes, 111, "WWEAllStars",
+REXCVAR_DEFINE_INT32(wwe_120fps_fixes, 8175, "WWEAllStars",
                      "120 fps matches: which per-tick fixes run while the step is 1/120 s (a "
                      "bitmask, for comparisons): 1 match camera averaging, 2 jump ease-in ramp, "
                      "4 jump ramp gravity term, 8 animation frame counter, 32 motion locator window "
                      "(ticket 07), 64 bone "
-                     "anchor events (ticket 08)");
+                     "anchor events (ticket 08), 128 bone anchor lifetime, 256 big motion locator drops, 512 move input "
+                     "turn limit, 1024 scripted turn step, 2048 pose before a lift, 4096 HUD clock");
 REXCVAR_DECLARE(bool, wwe_60fps_entrances);  // settings_cvars.cpp
 REXCVAR_DECLARE(bool, wwe_120fps_matches);   // settings_cvars.cpp
 
@@ -90,7 +95,7 @@ thread_local uint32_t t_self = 0;  // the FEngineLoop whose tick runs
 thread_local bool t_step_halved = false;
 thread_local uint64_t t_tick_count = 0;
 // How often each per-tick fix changed a value this second (wwe_tick_log), by bit.
-thread_local uint32_t t_fix_counts[7] = {};
+thread_local uint32_t t_fix_counts[13] = {};
 
 rex::Runtime* g_runtime = nullptr;
 // The guest vblank rate last asked for: 120 while ticks run at 120/s, else 0 (the video
@@ -283,7 +288,7 @@ bool InSixtyFpsCinematic() {
 
 }  // namespace
 
-// 60 fps entrances (.scratch/60fps-entrances/spec.md; docs/research/60fps-entrances.md
+// 60 fps entrances (docs/research/60fps-entrances.md
 // §1.1, §6 E3): the tick's step choice at 0x824178CC loads the 1/30 flag. True jumps to
 // the 1/60 path at 0x82417910 for a flagged cinematic (the arena intro, entrances), as
 // the game's own -BENCHMARK/-DUMPMOVIE checks do; the flag itself is left set, so the
@@ -337,7 +342,7 @@ bool At120Allowed() {
 
 }  // namespace
 
-// 120 fps matches (.scratch/high-framerate/spec.md; docs/research/high-framerate.md §1.1,
+// 120 fps matches (docs/research/high-framerate.md §1.1,
 // §6 a): both step paths join at 0x82417930 with the step in f31, before the tick stores it
 // (+0x28), passes dilation * step to GEngine->Tick and waits that long in its limiter. Halving
 // f31 there gives 1/120 s ticks and leaves the game's own time dilation (+0x2C) alone: the game
@@ -454,6 +459,189 @@ void Wwe120AnchorLookAhead(PPCRegister& f0, PPCRegister& f27, PPCRegister& f31,
   }
   CountFix120(64);
   f0.f64 = double(float(f31.f64 + float(f27.f64 * 2.0)));
+}
+
+// Bone anchor lifetime (bit 128): a statement sets the anchor for one 60 Hz frame (+0x24C = 1.0),
+// and UpdateSkelPose takes the elapsed frames off it, so at 1/120 s it lasts two ticks. A lift fires
+// it a tick before the pose starts to change, and that pose change then spans up to three ticks (one
+// lift: +46, +86, +41). Once the anchor runs out, the pawn stays put and the body drops (92, then
+// 43 units). A halved tick sets one frame more, so the anchor covers the whole change. Measured
+// at 120 only: the owner has no 60 fps capture of these moves.
+void Wwe120AnchorLife(PPCRegister& f0) {
+  if (Fix120On(128) && f0.f64 > 0.0) {
+    CountFix120(128);
+    f0.f64 = double(float(f0.f64 + 1.0));
+  }
+}
+
+// Big motion locator drops (bit 256): a clip that drops the pawn off the apron in one 60 Hz frame
+// has its pose catch up over that frame's two ticks at 1/120 s, later than the move (ring exit: -75
+// and -25 of move, -20 and -62 of pose, so the body dips 52 units for a tick). A 60 Hz frame takes
+// both in one step. A halved tick applies a third of a big drop and adds the rest to the next tick,
+// which follows the pose (-25 and -75). A very big lift gets a quarter the same way (Mysterio's corner
+// climb: +104 and +24 of move, +29 and +118 of pose, so the body jumped 78 units for a tick). A
+// smaller lift (a climb's +64 and +64) already moves with its pose. r1 + 0x70 is the move 0x8253F9A8
+// just wrote, in the bone's axes (+Y is down), read below for the pawn.
+namespace {
+constexpr float kBigLocatorDrop = 20.0f;
+constexpr float kDropFirstTick = 1.0f / 3.0f;
+constexpr float kBigLocatorLift = -90.0f;
+constexpr float kLiftFirstTick = 1.0f / 4.0f;
+struct HeldMove {
+  uint32_t node = 0;
+  float move[3] = {};
+};
+// Only touched while Fix120On holds, which reads the game thread's thread_local tick state, so
+// only the game thread uses them. A held move is added on the node's next tick.
+HeldMove g_held_moves[4];
+// A big move this tick: the pawn follows its pose after the pose is composed (a climb), so
+// Wwe120PoseBeforeLift must not read it as a pawn that stayed put.
+bool t_big_locator_move = false;
+}  // namespace
+
+void Wwe120BigLocatorDrop(PPCRegister& r1, PPCRegister& r31) {
+  if (!t_step_halved) {
+    return;
+  }
+  {
+    const uint8_t* memory = REX_KERNEL_MEMORY()->virtual_membase();
+    const float x = LoadF32(memory, r1.u32 + 0x70), y = LoadF32(memory, r1.u32 + 0x74),
+                z = LoadF32(memory, r1.u32 + 0x78);
+    if (std::sqrt(x * x + y * y + z * z) >= kBigLocatorDrop) {
+      t_big_locator_move = true;
+    }
+  }
+  if (!Fix120On(256)) {
+    return;
+  }
+  uint8_t* base = REX_KERNEL_MEMORY()->virtual_membase();
+  const uint32_t address = r1.u32 + 0x70;
+  float move[3];
+  for (uint32_t i = 0; i < 3; ++i) {
+    move[i] = LoadF32(base, address + i * 4);
+  }
+  for (HeldMove& held : g_held_moves) {
+    if (held.node == r31.u32) {
+      for (uint32_t i = 0; i < 3; ++i) {
+        StoreU32(base, address + i * 4, std::bit_cast<uint32_t>(move[i] + held.move[i]));
+      }
+      held.node = 0;
+      return;
+    }
+  }
+  if (move[1] < kBigLocatorDrop && move[1] > kBigLocatorLift) {
+    return;
+  }
+  const float first_tick = move[1] > 0.0f ? kDropFirstTick : kLiftFirstTick;
+  for (HeldMove& held : g_held_moves) {
+    if (held.node == 0) {
+      held.node = r31.u32;
+      for (uint32_t i = 0; i < 3; ++i) {
+        held.move[i] = move[i] * (1.0f - first_tick);
+        StoreU32(base, address + i * 4, std::bit_cast<uint32_t>(move[i] * first_tick));
+      }
+      CountFix120(256);
+      return;
+    }
+  }
+}
+
+// Pose before a lift (bit 2048): a lift's pose change starts a tick before the pawn can follow it
+// at 1/120 s (the anchor fires on the next tick, or the pawn is still on the mat), so the body
+// drops for that tick and the anchor then compensates only the rest of the change (a springboard:
+// +36 of pose, then +85 with +77 of move). A 60 Hz frame takes the whole change in one step, under
+// the anchor. So when the pelvis jumps up on a tick where the pawn does not move, this tick keeps the
+// previous pose, and the next tick takes the whole change. Bone data is copied big-endian as is.
+namespace {
+constexpr float kPelvisJump = 12.0f;
+constexpr uint32_t kBoneSize = 0x40;
+constexpr uint32_t kPelvisHeight = kBoneSize + 0x34;
+constexpr uint32_t kMinBones = 30;
+struct HeldPose {
+  uint32_t component = 0;
+  uint32_t bones = 0;
+  float z = 0.0f;
+  bool held = false;
+  std::vector<uint8_t> pose;
+};
+// Only touched while Fix120On holds, on the game thread.
+std::array<HeldPose, 8> g_poses;
+size_t g_next_pose = 0;
+}  // namespace
+
+void Wwe120PoseBeforeLift(PPCRegister& r30, PPCRegister& r31) {
+  if (!Fix120On(2048) || !r30.u32) {
+    return;
+  }
+  uint8_t* base = REX_KERNEL_MEMORY()->virtual_membase();
+  const uint32_t bones = LoadU32(base, r31.u32 + 0x2BC);
+  const uint32_t data = LoadU32(base, r31.u32 + 0x2B8);
+  if (bones < kMinBones || !data) {
+    return;
+  }
+  HeldPose* entry = nullptr;
+  for (HeldPose& pose : g_poses) {
+    if (pose.component == r31.u32) {
+      entry = &pose;
+    }
+  }
+  const float z = LoadF32(base, r30.u32 + 0xF0);
+  const bool big_move = std::exchange(t_big_locator_move, false);
+  if (!entry || entry->bones != bones) {
+    if (!entry) {
+      entry = &g_poses[g_next_pose];
+      g_next_pose = (g_next_pose + 1) % g_poses.size();
+    }
+    entry->component = r31.u32;
+    entry->bones = bones;
+    entry->held = false;
+    entry->pose.resize(size_t(bones) * kBoneSize);
+  } else {
+    const float jump = LoadF32(base, data + kPelvisHeight) -
+                       std::bit_cast<float>(std::byteswap(*reinterpret_cast<const uint32_t*>(
+                           entry->pose.data() + kPelvisHeight)));
+    const bool anchor_moves_it =
+        LoadF32(base, r30.u32 + 0x24C) > 0.0f && LoadF32(base, r30.u32 + 0x470) != 0.0f;
+    if (jump >= kPelvisJump && !entry->held && std::abs(z - entry->z) < 1.0f &&
+        !anchor_moves_it && !big_move) {
+      std::memcpy(base + data, entry->pose.data(), entry->pose.size());
+      entry->held = true;
+      entry->z = z;
+      CountFix120(2048);
+      return;
+    }
+  }
+  std::memcpy(entry->pose.data(), base + data, entry->pose.size());
+  entry->held = false;
+  entry->z = z;
+}
+
+// HUD clock (bit 4096): 0x82AFE880 ignores its dt and steps the HUD by a constant 1/60 s per tick,
+// so at 1/120 s the meter pulses and flashes ran at twice their speed. It also passes that step to
+// seven other per-tick updates and its own timers; all of them get half a step on a halved tick.
+void Wwe120HudClock(PPCRegister& f30) {
+  if (Fix120On(4096)) {
+    CountFix120(4096);
+    f30.f64 = double(float(f30.f64 * kHalfFrame));
+  }
+}
+
+// Per-call turn limits. Both are degrees per tick with no time factor, so a tick at 1/120 s
+// turns twice as fast per second; halved here. Bit 512: 0x82ADDB30 limits how far the move input
+// direction turns per call (pawn +0x6F0 or +0x6F4). Bit 1024: 0x82B252A8, the turn controller at
+// pawn +0x59C, turns yaw by min(+0x48, +0x6C) per call while its own frame counter uses dt.
+void Wwe120MoveTurnLimit(PPCRegister& f0) {
+  if (Fix120On(512)) {
+    CountFix120(512);
+    f0.f64 = double(float(f0.f64 * kHalfFrame));
+  }
+}
+
+void Wwe120ScriptedTurnStep(PPCRegister& f29) {
+  if (Fix120On(1024)) {
+    CountFix120(1024);
+    f29.f64 = double(float(f29.f64 * kHalfFrame));
+  }
 }
 
 // Match camera averaging (bit 1): 0x82B60A18(dt, ...) pushes one sample of the wrestlers'

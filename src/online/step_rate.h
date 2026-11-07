@@ -1,4 +1,4 @@
-// The online step rate (.scratch/online-latency/ ticket 03; evidence in
+// The online step rate (evidence in
 // docs/research/online-latency.md §2.3 and the manifest entries WweStepRateSample
 // and WweStepRatePublish). Pure decisions, tested in tests/core/test_step_rate.cpp,
 // used by src/online/step_rate_hooks.cpp.

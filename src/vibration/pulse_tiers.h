@@ -1,5 +1,5 @@
 // Pulse tiers (CONTEXT.md): the tier of hit pulse each combat type gives in
-// Enhanced (.scratch/enhanced-vibration/spec.md). Each tier's waveform is its
+// Enhanced. Each tier's waveform is its
 // hit shape (shapes.h).
 
 #pragma once

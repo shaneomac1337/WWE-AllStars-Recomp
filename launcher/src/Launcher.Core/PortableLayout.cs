@@ -32,8 +32,21 @@ public sealed class PortableLayout
     /// <summary>The player's mods and their load order (modding spec, "Location").</summary>
     public string ModsDirectory => Path.Combine(Root, "mods");
 
-    /// <summary>XenosRecomp with its DLLs and <c>shader_common.h</c>, shipped in the release zip.</summary>
+    /// <summary><c>shader_common.h</c> and <c>dxcompiler.dll</c> for the game's shader converter, shipped in the release zip.</summary>
     public string ShaderConverterDirectory => Path.Combine(Root, "xenosrecomp");
+
+    /// <summary>
+    /// Removes the standalone converter a release before 1.7.1 left when this one was unzipped over
+    /// it: nothing runs it any more, and Windows Defender flags it (ADR-0029). Best effort.
+    /// </summary>
+    public void RemoveOldShaderConverter()
+    {
+        foreach (var name in new[] { "XenosRecomp.exe", "fmt.dll" })
+        {
+            try { File.Delete(Path.Combine(ShaderConverterDirectory, name)); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+        }
+    }
 
     /// <summary>
     /// The PC SETTINGS file the game reads at startup and its in-game page writes: in the user

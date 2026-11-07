@@ -3,10 +3,32 @@ namespace WweAllStars.Launcher.Core;
 /// <summary>
 /// LZO1X decompression, written from the format description (liblzo2 and minilzo are GPL,
 /// ADR-0007). The game's cooked packages compress their blocks with it
-/// (docs/research/shader-containers-from-disc.md).
+/// (docs/research/shader-containers-from-disc.md). <see cref="StoreLiterals"/> writes valid
+/// streams with no compression, for renamed packages (package-rename spec).
 /// </summary>
 public static class Lzo1x
 {
+    /// <summary>
+    /// An LZO1X stream that holds <paramref name="data"/> as one literal run, then the end marker:
+    /// a first byte of 17 + n for up to 238 bytes, else a long literal instruction.
+    /// </summary>
+    public static byte[] StoreLiterals(ReadOnlySpan<byte> data)
+    {
+        var stream = new List<byte>(data.Length + 3 + data.Length / 255 + 3);
+        if (data.Length is > 0 and <= 238) stream.Add((byte)(17 + data.Length));
+        else if (data.Length > 238)
+        {
+            // Instruction 0: 18 literals plus a length extended by zero bytes of 255 each.
+            stream.Add(0);
+            var rest = data.Length - 18;
+            for (; rest > 255; rest -= 255) stream.Add(0);
+            stream.Add((byte)rest);
+        }
+        stream.AddRange(data);
+        stream.AddRange([0x11, 0, 0]);
+        return [.. stream];
+    }
+
     /// <summary>Decodes <paramref name="input"/> into <paramref name="output"/> and returns the bytes written.</summary>
     /// <exception cref="InvalidDataException">The stream is damaged or does not fit the output.</exception>
     public static int Decompress(ReadOnlySpan<byte> input, Span<byte> output)

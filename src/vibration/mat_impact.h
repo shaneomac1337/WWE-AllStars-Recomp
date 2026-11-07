@@ -1,7 +1,7 @@
 // Mat impacts (CONTEXT.md): a rumble when a wrestler's body hits the mat,
 // sized by the game's own ground-event type, for that wrestler and a lighter
-// echo for the other wrestler in the exchange (.scratch/pro-vibration/spec.md;
-// evidence in docs/research/impact-events.md, section A).
+// echo for the other wrestler in the exchange (evidence
+// in docs/research/impact-events.md, section A).
 
 #pragma once
 

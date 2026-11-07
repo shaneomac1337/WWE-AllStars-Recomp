@@ -48,6 +48,22 @@ REXCVAR_DEFINE_BOOL(wwe_unlock_everything, false, "WWEAllStars",
                     "Unlock every wrestler, arena, attire, Create a Superstar move, entrance "
                     "and Fantasy Warfare match; progress earned while it is on is still saved")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+// Asked on every hook call (cheats.cpp), so they apply at once, also during a match.
+REXCVAR_DEFINE_BOOL(wwe_cheat_infinite_finishers, false, "WWEAllStars",
+                    "The finisher bar stays full for you and your partner; does nothing online")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_BOOL(wwe_cheat_infinite_signatures, false, "WWEAllStars",
+                    "The signature bar stays full for you and your partner; does nothing online")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_BOOL(wwe_cheat_max_health, false, "WWEAllStars",
+                    "You and your partner take no health damage; does nothing online")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_BOOL(wwe_cheat_weak_enemy, false, "WWEAllStars",
+                    "CPU opponents lose health three times as fast; does nothing online")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_BOOL(wwe_cheat_no_reversal, false, "WWEAllStars",
+                    "CPU opponents can't reverse your moves; does nothing online")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
 // Asked when a Kismet delay or delayed link starts (faster_starts.cpp); read at the next start.
 REXCVAR_DEFINE_BOOL(wwe_short_loading_screens, true, "WWEAllStars",
                     "Cut three fixed waits of the pre-match load (2.0 s before the intro movie, "

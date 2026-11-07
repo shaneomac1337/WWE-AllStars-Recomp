@@ -4,7 +4,7 @@
 
 using wwe::match_music::TrackLoads;
 
-// Issue #9 (.scratch/match-music/issues/04-restart-match-silences-music.md): the music
+// Issue #9: the music
 // sequence's stop chain unloads the "current track" variable 0.4 s after the music stops.
 // After Restart Match the new match has already written its own track there and loaded it,
 // so the chain's Unload lands on the new track.

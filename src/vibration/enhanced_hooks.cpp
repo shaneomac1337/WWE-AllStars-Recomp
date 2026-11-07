@@ -1,5 +1,4 @@
-// Enhanced vibration's guest hooks (.scratch/enhanced-vibration/spec.md,
-// .scratch/full-coverage-vibration/spec.md; evidence in
+// Enhanced vibration's guest hooks (evidence in
 // docs/research/controller-vibration.md and docs/research/impact-events.md).
 // Each adds effects to the rumble mixer (mode.h) for the pad of the wrestler
 // it concerns; none writes a guest waveform (docs/adr/0017).

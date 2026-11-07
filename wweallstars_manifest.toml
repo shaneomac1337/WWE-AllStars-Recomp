@@ -592,6 +592,51 @@ address = 0x825444DC
 name = "Wwe120AnchorLookAhead"
 registers = ["f0", "f27", "f31", "r30"]
 
+# 120 fps: the anchor statement 0x82597240 stores its lifetime with stfs f0,0x24C(r30) at 0x825972F8;
+# 0x82798EE8-0x82798EF8 in UpdateSkelPose count it down. See Wwe120AnchorLife. Void: may rewrite f0.
+[[entrypoint.midasm_hook]]
+address = 0x825972F8
+name = "Wwe120AnchorLife"
+registers = ["f0"]
+
+# 120 fps: 0x8253F9A8 at 0x82541700 writes the motion locator's move to r1+0x70; 0x82541704-0x82541710
+# load it, and 0x82541770-0x82541784 hand it to the pawn (+0x4C4). See Wwe120BigLocatorDrop. Void:
+# may rewrite the guest stack before the loads.
+[[entrypoint.midasm_hook]]
+address = 0x82541704
+name = "Wwe120BigLocatorDrop"
+registers = ["r1", "r31"]
+
+# 120 fps: 0x82ADDB30 loads its per-call turn limit into f0 (lfs at 0x82ADDC84 or 0x82ADDC8C), then
+# compares and turns by it with no dt. Void: may rewrite f0.
+[[entrypoint.midasm_hook]]
+address = 0x82ADDC90
+name = "Wwe120MoveTurnLimit"
+registers = ["f0"]
+
+# 120 fps: 0x82AFE880 loads a constant 1/60 s into f30 (lfs f30,0x1CCC(r11) at 0x82AFE8A8) and uses it as
+# dt: +0x15C at 0x82AFE8B4, the HUD update 0x82B2F138 at 0x82AFEADC, seven siblings to 0x82AFEB14, and the
+# timer at 0x82AFEB2C. See Wwe120HudClock. Void: may rewrite f30.
+[[entrypoint.midasm_hook]]
+address = 0x82AFE8AC
+name = "Wwe120HudClock"
+registers = ["f30"]
+
+# 120 fps: 0x82797880 at 0x82798EAC composes the pose of component r31 (owner pawn r30, null checked at
+# 0x82798EB0); the anchor code from 0x82798EE8 then reads the bones. See Wwe120PoseBeforeLift. Void:
+# may rewrite the bones in guest memory.
+[[entrypoint.midasm_hook]]
+address = 0x82798EB0
+name = "Wwe120PoseBeforeLift"
+registers = ["r30", "r31"]
+
+# 120 fps: 0x82B252A8 takes f29 = min(+0x48, +0x6C) at 0x82B25340-0x82B25350 and adds it to yaw through
+# 0x82778168 at 0x82B2544C with no dt. Void: may rewrite f29.
+[[entrypoint.midasm_hook]]
+address = 0x82B25354
+name = "Wwe120ScriptedTurnStep"
+registers = ["f29"]
+
 # Unlock everything (.scratch/unlock-everything/ ticket 01; docs/research/unlock-everything.md
 # §2, §4.1). The unlockables refresh 0x82BE7560 (r3 = manager [0x8374C164]) saves r3 at
 # 0x82BE7570 (mr r31,r3) and then calls 0x82BE6710 and the five list refreshers
@@ -612,3 +657,55 @@ registers = ["r3"]
 address = 0x82B9C728
 name = "WweUnlockFantasyWarfare"
 registers = ["r3", "r23"]
+
+# GitHub #14: a Create A Superstar whose id starts with a 0 hangs the select screen. The save
+# is written as CAP_SAVE_%.8X.SAV (the id through %.8X, format 0x82204EA0, at 0x82B0E7BC with
+# the same formatter 0x82739138, then %s%s.SAV, format 0x82091BE0, at 0x82B0F898), but the mount in 0x82B20C20 parses the id back (bl 0x82C3B6B8, format
+# %X at 0x82208D84) and rebuilds the name with %s%X.SAV (0x82208D70), which drops the zero:
+# subi r4 at 0x82B20D20 / 0x82B20D88, then bl 0x82739138 at 0x82B20D28 / 0x82B20D90. The file
+# never opens, save: never mounts and 0x82736440 retries forever. The hooks repoint r4 at a
+# guest copy of %s%.8X.SAV just before each bl. Void.
+[[entrypoint.midasm_hook]]
+address = 0x82B20D28
+name = "WweCapSaveMountName"
+registers = ["r4"]
+
+[[entrypoint.midasm_hook]]
+address = 0x82B20D90
+name = "WweCapSaveMountName"
+registers = ["r4"]
+
+# GitHub #16: leaving Create A Superstar crashes on some PCs. 0x82B96898 (reached from the tick
+# 0x82B96EC8) loads the package at 0x82B96AE4 and opens <package>/interface_Loader at 0x82B96B28.
+# When that open returns 0, 0x82B96B58 calls 0x82B8DCB0, which frees and zeroes +0x3C8, and the next
+# state's tick reads it with no check: lwz r3,0x3C8(r28) at 0x82B963D4, lwz r11,0(r3) at 0x82B963D8.
+# The reporter's log has the open failing, UI_LOADER.xxx opening 5 ms later, then that read of guest
+# 0. The hook retries a failed open once, after a flush (0x82740618) and a reload. Void.
+[[entrypoint.midasm_hook]]
+address = 0x82B96B2C
+name = "WweLoaderMovieRetry"
+registers = ["r1", "r13", "fpscr", "r3", "r24", "r30", "r31"]
+
+# Cheats (GitHub #15, docs/research/cheats.md). The pawn tick: mr r3,r31 at 0x82AE772C, bl 0x82ADD0A8
+# at 0x82AE7734. The finisher gate 0x82BA41C0 tests stats +0x13C against +0x144, and 0x82B0C070 adds to
+# it; the energy gate 0x82BA4028 reads stats +0x130 (max +0x138). Stats = pawn +0x19B0. Void.
+[[entrypoint.midasm_hook]]
+address = 0x82AE7734
+name = "WweCheatTick"
+registers = ["r1", "r13", "fpscr", "r31"]
+
+# Cheats: 0x82ADABF8(pawn r3, part r4, amount r5) subtracts all health damage, called only from the
+# damage function 0x82AE58C0. A leaf function: its first instruction is clrlwi r11,r4,24. Void.
+[[entrypoint.midasm_hook]]
+address = 0x82ADABF8
+name = "WweCheatDamage"
+registers = ["r3", "r5"]
+
+# Cheats: the reversal trigger's evaluate 0x82BAB7B8 (vtable 0x821CB7F0). 0x82BABB94-0x82BABBA0 test the
+# spam lockout and fall into the game's "no" exit at 0x82BABBA4 (clears +0x5C, li r3,0). r30 is the FSM
+# pawn, the reverser: on success this function raises combat event 1, ECombatEvent_Reversal.
+[[entrypoint.midasm_hook]]
+address = 0x82BABB84
+name = "WweCheatNoReversal"
+registers = ["r30"]
+jump_address_on_true = 0x82BABBA4

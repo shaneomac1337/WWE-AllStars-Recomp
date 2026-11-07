@@ -1,4 +1,4 @@
-// Online trace hooks (from the online spike, .scratch/online-spike/ ticket 02). Each
+// Online trace hooks (from the online spike). Each
 // hook sits just after the `mflr r12` that opens a Quazal login, Net-Z or XSession
 // function, logs the first argument registers and r12 (the caller's return
 // address), and changes nothing. They log only with --wwe_net_trace (the SDK cvar

@@ -115,7 +115,7 @@ public sealed partial class ModLibrary
         {
             stamp.Append("mod ").Append(mod.Id).Append('\n');
             // Not the pack's packages: installing or removing a pack moves them, and must rebuild the folder.
-            foreach (var package in mod.OverlayPackages) Add("package", package.Path);
+            foreach (var package in mod.OverlayPackages) Add(StampLabel("package", package.MadeAs), package.Path);
             foreach (var file in mod.Config) Add($"config {file.Bundle}", file.Path);
         }
         foreach (var edit in launcherEdits) stamp.Append("launcher ").Append(edit.Name).Append('\n');
@@ -136,9 +136,21 @@ public sealed partial class ModLibrary
             if (name.Equals(PatchTocFileName, StringComparison.OrdinalIgnoreCase) || replaced.Contains(name) || bundles.ContainsKey(name)) continue;
             LinkOrCopy(path, Path.Combine(partial, name));
         }
-        foreach (var package in packages) LinkOrCopy(package.Path, Path.Combine(partial, package.Name));
+        // A renamed package is a new file (package-rename spec), and needs its own sizes in PatchTOC.txt.
+        var tocEntries = new List<ModPackage>();
+        foreach (var package in packages)
+        {
+            var target = Path.Combine(partial, package.Name);
+            if (package.MadeAs is null)
+            {
+                LinkOrCopy(package.Path, target);
+                tocEntries.Add(package);
+                continue;
+            }
+            WriteRenamed(package.Path, package.MadeAs, target);
+            tocEntries.Add(package with { Size = new FileInfo(target).Length, UncompressedSize = UncompressedSize(target) });
+        }
         // The rebuilt bundles are new files, and need their new sizes: TU2 lists its bundles in PatchTOC.txt.
-        var tocEntries = new List<ModPackage>(packages);
         foreach (var (name, bytes) in bundles)
         {
             var target = Path.Combine(partial, name);
@@ -154,6 +166,41 @@ public sealed partial class ModLibrary
         DeleteOrStop(OverlayDirectory);
         Directory.Move(partial, OverlayDirectory);
         File.WriteAllText(StampPath, stamp);
+    }
+
+    /// <summary>
+    /// A stamp line's <paramref name="label"/>, naming what a renamed file was made as, so a
+    /// rename always rebuilds the folder it is written into.
+    /// </summary>
+    private static string StampLabel(string label, string? madeAs) => madeAs is null ? label : $"{label} as {madeAs}";
+
+    /// <summary>
+    /// Writes <paramref name="source"/>, made as <paramref name="madeAs"/>, to <paramref name="target"/>
+    /// as the package of its file name. A failed write leaves no <paramref name="target"/>.
+    /// </summary>
+    /// <exception cref="IOException">The package could not be renamed.</exception>
+    private static void WriteRenamed(string source, string madeAs, string target)
+    {
+        try
+        {
+            using var input = File.OpenRead(source);
+            using var output = File.Create(target);
+            PackageRename.Write(input, madeAs, Path.GetFileName(target), output);
+        }
+        catch (Exception error)
+        {
+            try
+            {
+                File.Delete(target);
+            }
+            catch (Exception deleteError) when (deleteError is IOException or UnauthorizedAccessException)
+            {
+                // Left in the folder being built, which the next build clears first.
+            }
+            if (error is InvalidDataException or ArgumentException)
+                throw new IOException($"{Path.GetFileName(target)} could not be renamed from {madeAs}: {error.Message}", error);
+            throw;
+        }
     }
 
     private void LinkOrCopy(string source, string target)

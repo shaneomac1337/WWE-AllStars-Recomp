@@ -1,4 +1,4 @@
-// Finisher wind-up (.scratch/full-coverage-vibration/ ticket 05): a finisher
+// Finisher wind-up: a finisher
 // or extreme signature may enter several attack states, so each wrestler gets
 // at most one wind-up per second.
 

@@ -10,7 +10,7 @@ A difference counts only when it exceeds the spread between rounds of the same b
 
 ## Recording a result
 
-A measurement note (ticket, research doc) names the command line and the flags, not only the
+A measurement note (research doc) names the command line and the flags, not only the
 table: display lock on or off, vsync, window size, settings changed from the defaults. Ticket
 05 of `high-framerate` kept only its numbers, so a later review could not tell which present
 path it measured.

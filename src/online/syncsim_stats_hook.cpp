@@ -1,4 +1,4 @@
-// The online stats line (.scratch/online-latency/ ticket 01; evidence in
+// The online stats line (evidence in
 // docs/research/online-latency.md §2.2 and the manifest entry WweSyncSimStats).
 // A hook after SyncSim's update call (TU2 0x82A621B4) feeds each return
 // code and the host time into the accumulator in syncsim_stats.h, and once a

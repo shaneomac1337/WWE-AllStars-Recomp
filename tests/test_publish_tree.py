@@ -35,7 +35,7 @@ class PublishTreeTests(unittest.TestCase):
         git(self.repo, "config", "user.name", "Private Name")
         git(self.repo, "config", "user.email", "private@example.com")
         self.write("README.md", "hello\n")
-        self.write(".scratch/feature/spec.md", "internal\n")
+        self.write("docs/research/package-hashes/tu2-files.sha256", "internal\n")
         self.write("docs/research/github-and-reddit-launch.md", "internal\n")
         self.write("docs/adr/0001.md", "public\n")
         git(self.repo, "add", "-A")

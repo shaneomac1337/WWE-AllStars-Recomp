@@ -11,9 +11,9 @@ public sealed class SettingsSchemaTests
 
         // The spec's startup settings ("Settings"), with the GPU and the language.
         Assert.Equal(
-            ["fullscreen", "vulkan_device", "user_language", "graphics_preset", "wwe_native_renderer",
+            ["fullscreen", "present_allow_overscan_cutoff", "vulkan_device", "user_language", "graphics_preset", "wwe_native_renderer",
              "wwe_native_resolution_scale", "wwe_native_anisotropy", "wwe_native_color_mode", "wwe_60fps_entrances", "wwe_120fps_matches", "mnk_mode", "wwe_unlock_everything",
-             "wwe_short_loading_screens", "wwe_skip_startup_logos",
+             "wwe_cheat_infinite_finishers", "wwe_cheat_infinite_signatures", "wwe_cheat_max_health", "wwe_cheat_weak_enemy", "wwe_cheat_no_reversal", "wwe_short_loading_screens", "wwe_skip_startup_logos",
              "wwe_online",
              "wwe_online_name",
              "wwe_online_server", "wwe_online_upnp"],
@@ -67,7 +67,8 @@ public sealed class SettingsSchemaTests
 
         // Live in game (live-settings 01-04): Display mode, Texture filtering and 60 fps entrances; the rest of the
         // shown settings take a restart there, so their help stays as the game wrote it.
-        Assert.Equal(["fullscreen", "wwe_native_anisotropy", "wwe_60fps_entrances", "wwe_120fps_matches", "mnk_mode"],
+        Assert.Equal(["fullscreen", "wwe_native_anisotropy", "wwe_60fps_entrances", "wwe_120fps_matches", "mnk_mode",
+            "wwe_cheat_infinite_finishers", "wwe_cheat_infinite_signatures", "wwe_cheat_max_health", "wwe_cheat_weak_enemy", "wwe_cheat_no_reversal"],
             schema.Startup.Where(s => SettingsFile.RowHelp(s, "").EndsWith(SettingsFile.InGameLiveNote))
                 .Select(s => s.Key));
         var texture = schema.Find("wwe_native_anisotropy")!;

@@ -5,6 +5,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -98,7 +99,9 @@ Upload AllocateUpload(VkDeviceSize size, VkDeviceSize alignment = 16);
 
 // Bindless slots. Index 0 of each heap holds a default resource, so unbound
 // fetch slots read something valid. Freed slots are reused.
-uint32_t AllocateDescriptor(DescriptorHeap heap);
+// Empty when the heap is full. Index 0 goes to the first caller, the defaults (textures.cpp);
+// DestroyRetired never frees it, so a view on a full heap can keep sampling them.
+std::optional<uint32_t> AllocateDescriptor(DescriptorHeap heap);
 void WriteImageDescriptor(DescriptorHeap heap, uint32_t index, VkImageView view);
 void WriteSamplerDescriptor(uint32_t index, VkSampler sampler);
 void BindDescriptorHeaps(VkCommandBuffer command_buffer);

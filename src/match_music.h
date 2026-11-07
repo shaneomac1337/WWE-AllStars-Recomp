@@ -1,5 +1,5 @@
-// Match music after Restart Match (GitHub #9, .scratch/match-music/issues/04-restart-match-
-// silences-music.md). The music sequence (AUDIO_Music_*) stops the track on a restart and,
+// Match music after Restart Match (GitHub #9).
+// The music sequence (AUDIO_Music_*) stops the track on a restart and,
 // 0.4 s of game time later, unloads its "current track" variable through a
 // SeqAct_FmodEventDynamicLoading. The restarted match picks and loads its own track into that
 // variable 0.1 s after the restart, so the late Unload hits the new track and the match plays

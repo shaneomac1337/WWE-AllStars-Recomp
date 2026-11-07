@@ -1,4 +1,4 @@
-# Online play checkpoint 1c, the sync test (.scratch/online-play/issues/09-sync-test.md).
+# Online play checkpoint 1c, the sync test.
 # Two copies on this PC record a Player Match with SyncSim's replay log:
 #   copy A (127.0.0.2) is the owner's, on the real pad: host a Player Match (Xbox LIVE >
 #     Player Match > Create Match), take a slot at once, then pick a wrestler and play;

@@ -91,7 +91,9 @@ $env:LIB = "$($msvc.FullName)/lib/x64;$WindowsSdkRoot/Lib/$($windowsVersion.Name
 $preset = "win-amd64-$($Configuration.ToLowerInvariant())"
 $buildDirectory = "$projectRoot/out/build/$preset"
 if ($Variant) { $buildDirectory += "-$Variant" }
-$configureArguments = @('--preset', $preset, "-DCMAKE_PREFIX_PATH=$sdk", '-DREXSDK_VERSION=0.10.0') + $CMakeArgs
+# The Tracy client stays out of every build: Kaspersky flags TracyClientrd.dll as
+# VHO:Trojan.Win32.Sdum.gen (ADR-0029). To profile: -CMakeArgs '-DREXGLUE_ENABLE_TRACY=ON'.
+$configureArguments = @('--preset', $preset, "-DCMAKE_PREFIX_PATH=$sdk", '-DREXSDK_VERSION=0.10.0', '-DREXGLUE_ENABLE_TRACY=OFF') + $CMakeArgs
 $logSuffix = ''
 if ($Renderer -eq 'Vulkan') {
     $source = "$projectRoot/.tools/rexglue-source"

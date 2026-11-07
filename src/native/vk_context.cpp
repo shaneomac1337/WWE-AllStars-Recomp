@@ -159,6 +159,23 @@ bool InitializeContext(const rex::ui::vulkan::VulkanDevice* device,
                  "bindless descriptors, shaderInt64 or dynamic rendering");
     return false;
   }
+  // The bindless heaps (kHeapCapacity) need these; a device below them would misbehave
+  // rather than fail, so a bug report has to show them.
+  const auto& instance_functions = device->vulkan_instance()->functions();
+  if (instance_functions.vkGetPhysicalDeviceProperties2) {
+    VkPhysicalDeviceDescriptorIndexingProperties indexing = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES};
+    VkPhysicalDeviceProperties2 properties_2 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+    properties_2.pNext = &indexing;
+    instance_functions.vkGetPhysicalDeviceProperties2(device->physical_device(), &properties_2);
+    REXLOG_INFO(
+        "native renderer: update-after-bind limits: {} sampled images and {} samplers per stage, "
+        "{} descriptors in all pools; non-uniform image indexing native {}",
+        indexing.maxPerStageDescriptorUpdateAfterBindSampledImages,
+        indexing.maxPerStageDescriptorUpdateAfterBindSamplers,
+        indexing.maxUpdateAfterBindDescriptorsInAllPools,
+        bool(indexing.shaderSampledImageArrayNonUniformIndexingNative));
+  }
   g_vk.device = device;
   g_vk.dfn = &device->functions();
   g_vk.vk_device = device->device();
@@ -245,14 +262,14 @@ Upload AllocateUpload(VkDeviceSize size, VkDeviceSize alignment) {
   }
 }
 
-uint32_t AllocateDescriptor(DescriptorHeap heap) {
+std::optional<uint32_t> AllocateDescriptor(DescriptorHeap heap) {
   if (!g_free_descriptors[heap].empty()) {
     const uint32_t index = g_free_descriptors[heap].back();
     g_free_descriptors[heap].pop_back();
     return index;
   }
   if (g_next_descriptor[heap] >= kHeapCapacity[heap]) {
-    return 0;
+    return std::nullopt;
   }
   return g_next_descriptor[heap]++;
 }

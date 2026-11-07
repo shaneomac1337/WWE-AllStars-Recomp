@@ -123,8 +123,14 @@ A package is refused when it:
 - has a name the game has no package for (a mod can only replace packages);
 - has a file name with characters other than letters, digits, `_`, `-` and dots;
 - is not a game package, or is damaged;
-- is another package renamed. A cooked package names its objects after its own file, so a
-  renamed copy loads and then hangs the game. Rebuild it under the right name instead.
+- is another package renamed, and the launcher can't rename it. A cooked package names its
+  objects after its own file, so a plain renamed copy loads and then hangs the game. When the
+  old and new names are the same length, such as `Arena_005_Cin_Entrance.xxx` saved as
+  `Arena_003_Cin_Entrance.xxx`, the launcher renames it for you: the mod installs as you sent
+  it, the Mods tab notes the rename, and Play writes the renamed copy. Other renames are
+  refused, with the reason why (names of different lengths, a package compressed as a whole,
+  or another name in the package that still names the old slot). Rebuild those under the
+  right name instead.
 
 You never edit a table of contents: the launcher writes the sizes the game needs, including
 the uncompressed size of a compressed package. When your mod brings shaders the launcher
@@ -279,7 +285,8 @@ to look at, and to attach to a bug report.
 
 ## What doesn't work yet
 
-- **A renamed package.** A package only works under its own name (see Packages).
+- **A rename to a name of another length.** The launcher renames a package only to a name of
+  the same length (see Packages).
 - **No repacking tool.** The launcher doesn't build or edit packages, apart from writing
   roster entries. Use community tools to make packages; the format notes are in
   [`research/modding.md`](research/modding.md).

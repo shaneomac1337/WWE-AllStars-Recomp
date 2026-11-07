@@ -10,9 +10,9 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 
-# Kept in the private history only: the issue tracker and the launch research (Reddit
-# analysis of the owner's account).
-$internal = @('.scratch', 'docs/research/github-and-reddit-launch.md')
+# Kept in the private history only: the launch research (Reddit analysis of the owner's account)
+# and the file hash lists of the title update and DLC.
+$internal = @('docs/research/github-and-reddit-launch.md', 'docs/research/package-hashes')
 $identity = 'shaneomac1337'
 $email = 'shaneomac1337@users.noreply.github.com'
 

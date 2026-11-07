@@ -1,5 +1,5 @@
 // Hit shapes (CONTEXT.md): the two-motor waveform each pulse tier plays in
-// Enhanced (.scratch/pro-vibration/spec.md, research table in
+// Enhanced (research table in
 // docs/research/rumble-best-practices.md 3.1). One table; the owner playtests
 // and retunes it here.
 

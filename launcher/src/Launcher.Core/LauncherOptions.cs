@@ -10,7 +10,7 @@ namespace WweAllStars.Launcher.Core;
 /// makes <c>--extract</c> discard a partial folder instead of resuming it, and
 /// <c>--manifest</c> replaces the built-in disc manifest. <c>--prepare-shaders</c> runs setup's
 /// shader step headless (after <c>--extract</c> when both are given); <c>--xenosrecomp</c> names
-/// another XenosRecomp.exe, with <c>shader_common.h</c> beside it. <c>--prepare-pipelines</c> then runs the
+/// another folder with <c>shader_common.h</c> and <c>dxcompiler.dll</c>. <c>--prepare-pipelines</c> then runs the
 /// game's prepare-pipelines mode headless (zero-stutter ticket 07). <c>--title-update &lt;path&gt;</c>
 /// names Title Update 2 (a package, a folder or an archive): <c>--verify</c> checks it too,
 /// <c>--extract</c> unpacks it next to the game data (it requires TU2), <c>--repair</c> repairs the
@@ -36,10 +36,10 @@ public sealed record LauncherOptions(PortableLayout Layout, bool PrintArguments)
     public bool ReduceEffects { get; init; }
     public LauncherDebugCrash DebugCrash { get; init; }
 
-    /// <summary>XenosRecomp: in the release, <c>xenosrecomp/XenosRecomp.exe</c> beside the launcher.</summary>
-    public string ShaderConverterExecutable
+    /// <summary>The converter's files: in the release, <c>xenosrecomp/</c> beside the launcher.</summary>
+    public string ShaderConverterFiles
     {
-        get => _shaderConverter ?? Path.Combine(Layout.ShaderConverterDirectory, XenosRecompConverter.ExecutableName);
+        get => _shaderConverter ?? Layout.ShaderConverterDirectory;
         init => _shaderConverter = Path.GetFullPath(value);
     }
 
@@ -103,7 +103,7 @@ public sealed record LauncherOptions(PortableLayout Layout, bool PrintArguments)
             ReduceEffects = reduceEffects,
             DebugCrash = debugCrash,
         };
-        return xenosRecomp is null ? options : options with { ShaderConverterExecutable = xenosRecomp };
+        return xenosRecomp is null ? options : options with { ShaderConverterFiles = xenosRecomp };
     }
 
     /// <summary>The hard links the mod library makes; the App sets the platform's, and headless runs copy.</summary>
@@ -129,7 +129,7 @@ public sealed record LauncherOptions(PortableLayout Layout, bool PrintArguments)
 
     /// <summary>Setup's shader step, with the XenosRecomp these options name.</summary>
     public ShaderPreparation NewShaderPreparation() =>
-        new(new XenosRecompConverter(ShaderConverterExecutable), ShaderConverter.Id);
+        new(new XenosRecompConverter(Layout.GameExecutable, ShaderConverterFiles), ShaderConverter.Id);
 
     private static DiscManifest LoadManifest(string path) => Load(path, "disc manifest", DiscManifest.Load);
 

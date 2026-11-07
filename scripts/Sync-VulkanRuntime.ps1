@@ -1,7 +1,7 @@
 function Sync-VulkanRuntime([string]$SourceDirectory, [string]$DestinationDirectory, [string]$Configuration = 'RelWithDebInfo') {
-    # RelWithDebInfo builds carry an 'rd' suffix and the Tracy client; Release builds have neither.
+    # RelWithDebInfo builds carry an 'rd' suffix; Release builds do not. Tracy only when built with it.
     $names = if ($Configuration -eq 'Release') { @('rexruntime.dll', 'rexgpu-xenos.dll') }
-        else { @('rexruntimerd.dll', 'rexgpu-xenosrd.dll', 'TracyClientrd.dll') }
+        else { @('rexruntimerd.dll', 'rexgpu-xenosrd.dll') }
     $copies = @()
     foreach ($name in $names) {
         $source = Join-Path $SourceDirectory $name

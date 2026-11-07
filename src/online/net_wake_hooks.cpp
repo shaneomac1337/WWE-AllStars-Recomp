@@ -1,5 +1,5 @@
 // Wakes Net-Z's Transport Thread when SyncSim queues input for its peers
-// (.scratch/online-latency/ ticket 04; docs/research/online-latency.md §2.2).
+// (docs/research/online-latency.md §2.2).
 //
 // The Transport Thread sends what the game queued once per pass, and a pass starts
 // when a receive event fires or its 10 ms WSAWaitForMultipleEvents timeout runs out.

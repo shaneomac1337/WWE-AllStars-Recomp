@@ -422,11 +422,11 @@ public sealed class CommandLineTests : IDisposable
     public void The_shader_converter_ships_beside_the_launcher_unless_one_is_named()
     {
         var shipped = LauncherOptions.Parse(["--prepare-shaders"], _root);
-        var named = LauncherOptions.Parse(["--prepare-shaders", "--xenosrecomp", Path.Combine(_root, "dev", "XenosRecomp.exe")], _root);
+        var named = LauncherOptions.Parse(["--prepare-shaders", "--xenosrecomp", Path.Combine(_root, "dev")], _root);
 
         Assert.True(shipped.Headless);
-        Assert.Equal(Path.Combine(_root, "xenosrecomp", "XenosRecomp.exe"), shipped.ShaderConverterExecutable);
-        Assert.Equal(Path.Combine(_root, "dev", "XenosRecomp.exe"), named.ShaderConverterExecutable);
+        Assert.Equal(Path.Combine(_root, "xenosrecomp"), shipped.ShaderConverterFiles);
+        Assert.Equal(Path.Combine(_root, "dev"), named.ShaderConverterFiles);
     }
 
     [Fact]

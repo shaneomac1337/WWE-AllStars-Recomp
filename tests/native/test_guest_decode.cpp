@@ -262,6 +262,27 @@ TEST_CASE("720p into a 1440p window goes to the presenter to be scaled up") {
   CHECK(plan.output_height == 720);
 }
 
+TEST_CASE("Fill screen plans the output for the area the presenter covers") {
+  const OutputPlan letterboxed = PlanOutput(3, 2560, 1600);
+  CHECK(letterboxed.output_width == 2560);
+  CHECK(letterboxed.output_height == 1440);
+  // 16:10: full height, the sides cut off.
+  const OutputPlan filled = PlanOutput(3, 2560, 1600, true);
+  CHECK(filled.output_width == 2844);
+  CHECK(filled.output_height == 1600);
+  const OutputPlan rounded = PlanOutput(3, 1680, 1050, true);
+  CHECK(rounded.output_width == 1867);
+  CHECK(rounded.output_height == 1050);
+  // 16:9: nothing to crop.
+  const OutputPlan same = PlanOutput(3, 2560, 1440, true);
+  CHECK(same.output_width == 2560);
+  CHECK(same.output_height == 1440);
+  // 21:9: the cut stops at the 90% safe area.
+  const OutputPlan wide = PlanOutput(3, 3440, 1440, true);
+  CHECK(wide.output_height == 1600);
+  CHECK(wide.output_width == 2844);
+}
+
 TEST_CASE("1440p into a 1440p window is drawn at the window's size, nothing filtered") {
   const OutputPlan plan = PlanOutput(2, 2560, 1440);
   CHECK(plan.target_scale == 2);

@@ -1,4 +1,4 @@
-// Faster starts (.scratch/faster-starts/spec.md): Shorter loading screens, the Kismet wait
+// Faster starts: Shorter loading screens, the Kismet wait
 // cuts of the pre-match load.
 
 #pragma once

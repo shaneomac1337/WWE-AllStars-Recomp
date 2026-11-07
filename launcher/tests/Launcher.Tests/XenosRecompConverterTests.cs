@@ -28,7 +28,7 @@ public sealed class XenosRecompConverterTests : IDisposable
     {
         new TestPackage().Add(TestPackage.Container(vertex: false, 1, 2, 3, 4))
             .Write(Path.Combine(_root, "gamedata", "Game", "CookedXenon", "Engine.xxx"));
-        var converter = new XenosRecompConverter(Path.Combine(_root, "xenosrecomp", XenosRecompConverter.ExecutableName));
+        var converter = new XenosRecompConverter(Path.Combine(_root, "game", PortableLayout.GameExecutableName), Path.Combine(_root, "xenosrecomp"));
 
         var error = Assert.Throws<ShaderPreparationException>(() =>
             new ShaderPreparation(converter, ShaderConverter.Id).Run(Path.Combine(_root, "gamedata"), Path.Combine(_root, "cache"),
@@ -36,5 +36,20 @@ public sealed class XenosRecompConverterTests : IDisposable
 
         Assert.Contains("shader converter is missing", error.Message);
         Assert.Contains("Emulated", error.Message);
+    }
+
+    [Fact]
+    public void Unzipping_over_an_old_release_loses_its_standalone_converter()
+    {
+        var layout = new PortableLayout(_root);
+        Directory.CreateDirectory(layout.ShaderConverterDirectory);
+        foreach (var name in new[] { "XenosRecomp.exe", "fmt.dll", XenosRecompConverter.IncludeName })
+            File.WriteAllText(Path.Combine(layout.ShaderConverterDirectory, name), "x");
+
+        layout.RemoveOldShaderConverter();
+        layout.RemoveOldShaderConverter();
+
+        Assert.Equal([XenosRecompConverter.IncludeName],
+            Directory.GetFiles(layout.ShaderConverterDirectory).Select(path => Path.GetFileName(path)!));
     }
 }

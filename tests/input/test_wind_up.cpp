@@ -1,4 +1,4 @@
-// Finisher wind-up (.scratch/full-coverage-vibration/ ticket 05): its shape
+// Finisher wind-up: its shape
 // (seam 2) and the one-per-second debounce per wrestler.
 
 #include <catch_amalgamated.hpp>

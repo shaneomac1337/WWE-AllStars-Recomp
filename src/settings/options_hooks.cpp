@@ -27,6 +27,7 @@
 #include <rex/logging.h>
 #include <rex/system/kernel_state.h>
 
+#include "guest_memory.h"
 #include "settings/exit_row.h"
 #include "settings/options_row.h"
 #include "settings/settings_page.h"
@@ -83,11 +84,7 @@ uint32_t GuestText(uint8_t* base, const std::u16string& text) {
   if (!address) {
     return 0;
   }
-  for (size_t i = 0; i <= text.size(); ++i) {
-    const char16_t ch = i < text.size() ? text[i] : u'\0';
-    base[address + i * 2] = uint8_t(ch >> 8);
-    base[address + i * 2 + 1] = uint8_t(ch);
-  }
+  wwe::guest::StoreU16String(base, address, text);
   g_guest_texts.emplace(text, address);
   return address;
 }

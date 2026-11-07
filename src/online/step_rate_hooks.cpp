@@ -1,4 +1,4 @@
-// The online step rate (.scratch/online-latency/ ticket 03; evidence in
+// The online step rate (evidence in
 // docs/research/online-latency.md §2.3 and the manifest entries WweStepRateSample
 // and WweStepRatePublish). Two thin hooks inside SyncSim's adaptive-rate
 // calculation (TU2 0x830D8FA0) replace its truncating sample and publish with the

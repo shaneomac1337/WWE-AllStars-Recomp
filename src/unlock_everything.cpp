@@ -1,4 +1,4 @@
-// Unlock everything (wwe_unlock_everything, .scratch/unlock-everything/, evidence in
+// Unlock everything (wwe_unlock_everything, evidence in
 // docs/research/unlock-everything.md §2, §4.1 and §4.3). All of it does nothing while the
 // setting is off:
 //

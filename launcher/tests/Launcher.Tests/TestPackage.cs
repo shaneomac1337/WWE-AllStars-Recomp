@@ -16,6 +16,11 @@ internal sealed class TestPackage
         None,
         /// <summary>The body after the summary is one LZO chunk listed in the summary.</summary>
         Chunks,
+        /// <summary>
+        /// The body in two LZO chunks: the tables, then the export data, so a reader of the tables
+        /// never opens the second.
+        /// </summary>
+        TwoChunks,
         /// <summary>The whole file is a run of LZO chunks with little-endian headers, then zero padding.</summary>
         WholeFile,
     }
@@ -34,6 +39,9 @@ internal sealed class TestPackage
     /// cooked packages carry it; <see cref="Write"/> and <see cref="Bytes(string)"/> use the file name when this is null.
     /// </summary>
     public string? MadeAs { get; init; }
+
+    /// <summary>Further name-table entries, after the name it was made under.</summary>
+    public string[] ExtraNames { get; init; } = [];
 
     /// <summary>A Xenos shader container: the 36-byte header, then the microcode.</summary>
     public static byte[] Container(bool vertex, params byte[] microcode)
@@ -89,10 +97,11 @@ internal sealed class TestPackage
         lock (_records)
         {
             _madeAs = madeAs;
-            var plain = Plain(out var bodyStart);
+            var plain = Plain(out var bodyStart, out var dataStart);
             return Compressed switch
             {
-                Compression.Chunks => ChunkCompressed(plain, bodyStart),
+                Compression.Chunks => ChunkCompressed(plain, bodyStart, [bodyStart]),
+                Compression.TwoChunks => ChunkCompressed(plain, bodyStart, [bodyStart, dataStart]),
                 Compression.WholeFile => [.. Chunk(plain, littleEndian: true), .. new byte[100]], // the disc pads with zeros
                 _ => plain,
             };
@@ -104,7 +113,7 @@ internal sealed class TestPackage
 
     private string? _madeAs;
 
-    private string[] Names => _madeAs is null ? BaseNames : [.. BaseNames, "Package", _madeAs];
+    private string[] Names => _madeAs is null ? [.. BaseNames, .. ExtraNames] : [.. BaseNames, "Package", _madeAs, .. ExtraNames];
 
     private int NameIndex(string name)
     {
@@ -113,19 +122,23 @@ internal sealed class TestPackage
         return index;
     }
 
-    /// <summary>The uncompressed package; <paramref name="bodyStart"/> is where the name table starts.</summary>
-    private byte[] Plain(out int bodyStart)
+    /// <summary>
+    /// The uncompressed package; <paramref name="bodyStart"/> is where the name table starts,
+    /// <paramref name="dataStart"/> where the export data starts.
+    /// </summary>
+    private byte[] Plain(out int bodyStart, out int dataStart)
     {
-        var chunked = Compressed == Compression.Chunks;
+        var chunkCount = Compressed switch { Compression.Chunks => 1, Compression.TwoChunks => 2, _ => 0 };
+        var chunked = chunkCount > 0;
         var summary = new Writer();
         summary.U32(0x9E2A83C1).U32(0x0025018E).U32(0).U32(0x20414E54).U32(0x0F);
         summary.FString("None");
         var counts = summary.Position;
         summary.Zeros(7 * 4); // flags, names, exports, imports: patched below
         summary.Zeros(16).U32(0).U32(0xA2D).U32(0x21);
-        summary.U32(chunked ? 2u : 0u).U32(chunked ? 1u : 0u);
+        summary.U32(chunked ? 2u : 0u).U32((uint)chunkCount);
         var chunkTable = summary.Position;
-        if (chunked) summary.Zeros(16);
+        summary.Zeros(16 * chunkCount);
         bodyStart = summary.Position;
 
         var file = summary;
@@ -142,7 +155,7 @@ internal sealed class TestPackage
         // Export table: a texture with a component map and net objects (a longer entry), the
         // cache, then the top-level package it was made as.
         var tableSize = (40 + 4 + 12 + 4 + 4 + 8 + 16) + (40 + 4 + 4 + 4 + 16) + (_madeAs is null ? 0 : 40 + 4 + 4 + 4 + 16);
-        var dataStart = exportOffset + tableSize;
+        dataStart = exportOffset + tableSize;
         var textureData = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 };
         var cacheData = CacheExport(dataStart + textureData.Length);
 
@@ -168,12 +181,13 @@ internal sealed class TestPackage
             BinaryPrimitives.WriteInt32BigEndian(bytes.AsSpan(c), value);
             c += 4;
         }
-        if (chunked)
+        // The chunks' offsets and sizes; ChunkCompressed patches their compressed ones.
+        int[] starts = chunkCount == 2 ? [bodyStart, dataStart] : [bodyStart];
+        for (var i = 0; i < chunkCount; i++)
         {
-            BinaryPrimitives.WriteInt32BigEndian(bytes.AsSpan(chunkTable), bodyStart);
-            BinaryPrimitives.WriteInt32BigEndian(bytes.AsSpan(chunkTable + 4), bytes.Length - bodyStart);
-            BinaryPrimitives.WriteInt32BigEndian(bytes.AsSpan(chunkTable + 8), bodyStart);
-            // CompressedSize is patched by ChunkCompressed.
+            var end = i + 1 < chunkCount ? starts[i + 1] : bytes.Length;
+            BinaryPrimitives.WriteInt32BigEndian(bytes.AsSpan(chunkTable + i * 16), starts[i]);
+            BinaryPrimitives.WriteInt32BigEndian(bytes.AsSpan(chunkTable + i * 16 + 4), end - starts[i]);
         }
         return bytes;
     }
@@ -196,13 +210,20 @@ internal sealed class TestPackage
         return cache.ToArray();
     }
 
-    private static byte[] ChunkCompressed(byte[] plain, int bodyStart)
+    /// <summary>The body from each of <paramref name="starts"/> on as one chunk; the chunk table ends the summary.</summary>
+    private static byte[] ChunkCompressed(byte[] plain, int bodyStart, int[] starts)
     {
-        var chunk = Chunk(plain[bodyStart..], littleEndian: false);
         var file = plain[..bodyStart];
-        // The chunk table is the summary's last 16 bytes.
-        BinaryPrimitives.WriteInt32BigEndian(file.AsSpan(bodyStart - 4), chunk.Length);
-        return [.. file, .. chunk];
+        var table = bodyStart - 16 * starts.Length;
+        var chunks = new List<byte>();
+        for (var i = 0; i < starts.Length; i++)
+        {
+            var chunk = Chunk(plain[starts[i]..(i + 1 < starts.Length ? starts[i + 1] : plain.Length)], littleEndian: false);
+            BinaryPrimitives.WriteInt32BigEndian(file.AsSpan(table + i * 16 + 8), bodyStart + chunks.Count);
+            BinaryPrimitives.WriteInt32BigEndian(file.AsSpan(table + i * 16 + 12), chunk.Length);
+            chunks.AddRange(chunk);
+        }
+        return [.. file, .. chunks];
     }
 
     /// <summary>One chunk: {tag, block size, sizes}, block sizes, then literal-only LZO blocks.</summary>

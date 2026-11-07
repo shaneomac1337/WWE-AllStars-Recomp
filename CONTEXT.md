@@ -228,6 +228,10 @@ _Avoid_: DLC (that's the official packs), custom DLC
 A content mod's description of one new wrestler: a placeholder slot's id, the complete entry it copies, and the property values it changes, among them its own `CodeName`, the key of its label and pick. The launcher writes it into the roster package at Play, with its name text.
 _Avoid_: character patch, roster edit
 
+**Package**:
+A cooked UE3 file (`.xxx`), on the disc or in a mod, that names itself inside after the file it was made as. The launcher renames one made under a same-length name at Play. Code that reads packages lives in `launcher/src/Launcher.Core`: `Ue3Summary` (summary and tables) and `Ue3Chunks` (LZO chunk table and headers); new readers build on these.
+_Avoid_: asset (that's an object inside a package)
+
 **Load order**:
 The player's ordering of enabled mods. When two mods replace the same file, the later one wins.
 _Avoid_: priority, mod order

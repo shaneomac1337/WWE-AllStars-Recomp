@@ -11,7 +11,7 @@
 # (--prepare-shaders, then --prepare-pipelines, as setup does since zero-stutter 07) into a
 # staging root and moves what they wrote into the cache folder. The pipeline step starts the
 # game headless on the GPU (its prepare mode).
-# It needs the launcher (build.ps1 -Action Launcher) and XenosRecomp (build-xenosrecomp.ps1).
+# It needs the launcher (build.ps1 -Action Launcher).
 # Everything lands in analysis/capture-<target>-<time>/: presentmon.csv, runtime.log, marks.txt
 # (same format as SVR2011's mark.ps1), display.json and, for the game on Native, gpu_timer.csv
 # (Native's GPU timer). display.json records the Graphics preset, its settings and whether the
@@ -59,16 +59,16 @@ $cacheRoot = "$projectRoot/cache/vulkan"
 function Reset-ToFreshInstall {
     if ($Target -ne 'game') { throw '-FreshInstall and -ResetOnly apply to the game, not Canary.' }
     $launcher = "$projectRoot/out/launcher/publish/WWEAllStarsLauncher.exe"
-    $xenosRecomp = "$projectRoot/out/build/xenosrecomp/XenosRecomp"
+    $compiler = "$projectRoot/.tools/xenosrecomp/thirdparty/dxc-bin/bin/x64/dxcompiler.dll"
     $shaderCommon = "$projectRoot/.tools/xenosrecomp/XenosRecomp/shader_common.h"
-    foreach ($path in $launcher, "$xenosRecomp/XenosRecomp.exe", $shaderCommon) {
+    foreach ($path in $launcher, $compiler, $shaderCommon) {
         if (!(Test-Path -LiteralPath $path)) { throw "Build first: $path" }
     }
     $stage = "$projectRoot/out/fresh-setup"
     if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
     New-Item -ItemType Directory -Force "$stage/xenosrecomp" | Out-Null
-    # The release layout: XenosRecomp and shader_common.h in xenosrecomp/ under the root.
-    Copy-Item "$xenosRecomp/*.exe", "$xenosRecomp/*.dll", $shaderCommon -Destination "$stage/xenosrecomp"
+    # The release layout: dxcompiler.dll and shader_common.h in xenosrecomp/ under the root.
+    Copy-Item $compiler, $shaderCommon -Destination "$stage/xenosrecomp"
 
     # The pipeline store is <cache_root>/native-pipelines; builds before zero-stutter 02 kept it
     # beside the game, and a store left there is cleared too.

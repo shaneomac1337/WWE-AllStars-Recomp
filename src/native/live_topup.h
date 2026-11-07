@@ -90,18 +90,17 @@ std::vector<ShaderPack> LoadConverted(const std::filesystem::path& folder,
                                       uint64_t expected_converter_id,
                                       std::vector<std::string>& skipped);
 
-// XenosRecomp and the shader_common.h it compiles with.
+// The exe that converts (the game itself, shader_convert_mode.h) and the shader_common.h it
+// compiles with.
 struct Converter {
   std::filesystem::path executable;
   std::filesystem::path include;
 };
 
-// Where the game finds XenosRecomp, first match wins: named (a cvar, with
-// shader_common.h beside it); the release's xenosrecomp/ folder beside game/
-// (scripts/package.ps1); the dev build's (dev, set at configure time). Both
-// files must exist.
-std::optional<Converter> FindConverter(const std::filesystem::path& game_directory,
-                                       const std::filesystem::path& named,
-                                       const Converter& dev);
+// Where the game finds shader_common.h, first match wins: named (a cvar); the release's
+// xenosrecomp/ folder beside game/ (scripts/package.ps1); the dev build's (set at configure time).
+std::optional<Converter> FindConverter(const std::filesystem::path& game_executable,
+                                       const std::filesystem::path& named_include,
+                                       const std::filesystem::path& dev_include);
 
 }  // namespace wwe::native::live_topup

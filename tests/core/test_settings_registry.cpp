@@ -34,12 +34,13 @@ TEST_CASE("the page shows the spec's settings on six tabs") {
   }
   CHECK(tabs == std::set<std::string>{"DISPLAY", "GRAPHICS", "AUDIO", "CONTROLS", "GAMEPLAY", "ONLINE"});
   CHECK(names == std::set<std::string>{
-                     "fullscreen", "present_vsync", "vblank_follows_display",
+                     "fullscreen", "present_allow_overscan_cutoff", "present_vsync", "vblank_follows_display",
                      "wwe_native_renderer", "wwe_native_cas",
                      "wwe_native_resolution_scale", "wwe_native_anisotropy",
                      "wwe_native_color_mode", "wwe_60fps_entrances", "wwe_120fps_matches",
                      "audio_mute",
-                     "wwe_vibration_mode", "wwe_vibration_strength", "mnk_mode", "wwe_unlock_everything", "wwe_short_loading_screens", "wwe_skip_startup_logos", "vulkan_device",
+                     "wwe_vibration_mode", "wwe_vibration_strength", "mnk_mode", "wwe_unlock_everything", "wwe_cheat_infinite_finishers", "wwe_cheat_infinite_signatures",
+                     "wwe_cheat_max_health", "wwe_cheat_weak_enemy", "wwe_cheat_no_reversal", "wwe_short_loading_screens", "wwe_skip_startup_logos", "vulkan_device",
                      "user_language", "graphics_preset", "wwe_online", "wwe_online_name", "wwe_online_server",
                      "wwe_online_upnp"});
 }
@@ -131,7 +132,7 @@ TEST_CASE("restart marks come from each cvar's lifecycle") {
         setting.name == "mnk_mode" ||
         setting.name == "wwe_native_cas" || setting.name == "present_vsync" ||
         setting.name == "wwe_native_anisotropy" || setting.name == "wwe_60fps_entrances" ||
-        setting.name == "wwe_120fps_matches") {
+        setting.name == "wwe_120fps_matches" || setting.name.starts_with("wwe_cheat_")) {
       CHECK_FALSE(setting.restart);
     } else if (!InGpuPlugin(setting.name)) {
       CHECK(setting.restart);

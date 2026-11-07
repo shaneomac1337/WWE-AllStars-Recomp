@@ -1,4 +1,4 @@
-"""UDP listener for the online spike (.scratch/online-spike/, ticket 02).
+"""UDP listener for the online spike.
 
 Binds the given UDP ports on all interfaces and logs every datagram in hex, with
 a Quazal PRUDP v0 header decode. By default it never replies.

@@ -57,6 +57,13 @@ inline std::vector<Setting> PlayerSettings() {
   std::vector<Setting> settings = {
       {"fullscreen", "Display mode", "DISPLAY", {{"false", "Windowed"}, {"true", "Fullscreen"}},
        "Play in a window or fill the screen.", /*startup=*/true},
+      // The SDK presenter's overscan cutoff, limited by its 90% safe area (presenter.cpp).
+      {"present_allow_overscan_cutoff", "Fill screen (crop edges)", "DISPLAY",
+       {{"false", "Off"}, {"true", "On"}},
+       "On crops up to 5% from each side instead of showing black bars. This fills a 16:10 screen. "
+       "Wider or squarer screens keep smaller bars. Parts of the HUD can sit close to the edge. "
+       "A 16:9 screen shows no change.",
+       /*startup=*/true},
       {"present_vsync", "VSync", "DISPLAY", {{"true", "On"}, {"false", "Off"}},
        "On shows every frame on a display refresh, so the picture never tears. Off gives the "
        "lowest input latency."},
@@ -146,7 +153,28 @@ inline std::vector<Setting> PlayerSettings() {
        "Warfare match. Progress you earn while it is on is still saved; turn it off to see "
        "only what you have unlocked yourself.",
        /*startup=*/true},
-      // Faster starts (.scratch/faster-starts/spec.md): Shorter loading screens is on by default
+      // Cheats (cheats.cpp): startup shows them in the launcher; the cvars stay live in game.
+      {"wwe_cheat_infinite_finishers", "Cheat: infinite finishers", "GAMEPLAY",
+       {{"false", "Off"}, {"true", "On"}},
+       "The finisher bar is always full, for you and your tag partner. Does nothing online. Wins with it on still count towards progress and achievements.",
+       /*startup=*/true},
+      {"wwe_cheat_infinite_signatures", "Cheat: infinite signatures", "GAMEPLAY",
+       {{"false", "Off"}, {"true", "On"}},
+       "The signature bar is always full, for you and your tag partner. Does nothing online. Wins with it on still count towards progress and achievements.",
+       /*startup=*/true},
+      {"wwe_cheat_max_health", "Cheat: max health", "GAMEPLAY",
+       {{"false", "Off"}, {"true", "On"}},
+       "You and your tag partner take no health damage. You can still be pinned, stunned or counted out. Does nothing online. Wins with it on still count towards progress and achievements.",
+       /*startup=*/true},
+      {"wwe_cheat_weak_enemy", "Cheat: weak enemy", "GAMEPLAY",
+       {{"false", "Off"}, {"true", "On"}},
+       "CPU opponents lose health three times as fast. Does nothing online. Wins with it on still count towards progress and achievements.",
+       /*startup=*/true},
+      {"wwe_cheat_no_reversal", "Cheat: no reversal", "GAMEPLAY",
+       {{"false", "Off"}, {"true", "On"}},
+       "CPU opponents can't reverse your moves. They can still counter. Does nothing online. Wins with it on still count towards progress and achievements.",
+       /*startup=*/true},
+      // Faster starts: Shorter loading screens is on by default
       // (owner, 2026-10-25), Skip startup logos off.
       {.name = "wwe_short_loading_screens",
        .label = "Shorter loading screens",
