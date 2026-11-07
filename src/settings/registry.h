@@ -128,8 +128,7 @@ inline std::vector<Setting> PlayerSettings() {
        "Runs wrestler entrances and the arena intro at 60 fps instead of the original 30.",
        /*startup=*/true},
       {"wwe_120fps_matches", "120 fps matches", "GRAPHICS", {{"false", "Off"}, {"true", "On"}},
-       "Experimental: some moves can look wrong at 120, such as a wrestler briefly out of "
-       "place on a running throw. Runs offline matches at 120 fps on a 120 Hz or faster "
+       "Runs offline matches at 120 fps on a 120 Hz or faster "
        "display, or with variable refresh. Menus and entrances keep their rates; online "
        "matches stay at 60. Needs a strong GPU: lower the render resolution if frames stutter.",
        /*startup=*/true},

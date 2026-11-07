@@ -162,6 +162,15 @@ move, entrance and Fantasy Warfare match at once. Your save is never changed by 
 what you really earn while it is on is still saved, and turning it off (then
 restarting) brings back your own progress.
 
+### Cheats
+
+Five rows on the GAMEPLAY tab, all off by default: infinite finishers, infinite signatures, max
+health, weak enemy (CPU opponents lose health three times as fast) and no reversal (CPU opponents
+can't reverse your moves, though they can still counter). The first three apply to you and your tag
+partner, and you can still be pinned, stunned or counted out. They also change during a match on
+the in-game page (F4), do nothing online, and wins with one on still count towards progress and
+achievements.
+
 ### Faster starts
 
 Two options on the GAMEPLAY tab. Shorter loading screens is on by default: it cuts the
@@ -169,12 +178,11 @@ fixed waits before each match where nothing is loading, about 10 seconds, and do
 in online matches. Skip startup logos is off by default: it drops the THQ and WWE movies at
 boot, so the menu comes about 12 seconds sooner. The disclaimer still shows.
 
-### 120 fps matches (experimental)
+### 120 fps matches
 
 An option on the GRAPHICS tab runs offline matches at 120 fps, on a 120 Hz or faster
 display or with variable refresh. Menus and entrances keep their rates, and online
-matches stay at 60. It is off by default: some moves can still look wrong at 120, such as
-a wrestler briefly out of place on a running throw, and it needs a strong GPU.
+matches stay at 60. It is off by default because it needs a strong GPU.
 
 ### Online Player Match (experimental)
 
@@ -297,6 +305,10 @@ your Windows user name; check it before posting. The launcher keeps the last 10 
 | Wrong graphics, or a crash without a report | Choose Open logs in the launcher, zip the session folder it opens and attach it to a [bug report](../../issues/new/choose). A log can contain folder paths that show your Windows user name; check it before posting |
 
 ## FAQ
+
+**Does my antivirus flag it?** The releases are not code-signed, so a scanner can wrongly flag them,
+as Windows Defender did with the old `XenosRecomp.exe` (`Trojan:Win32/Bearfoos.B!ml`). That file is
+gone since 2.0.0. We check each release on Windows Defender and VirusTotal before publishing it.
 
 **Is this an emulator?**
 No. The game's code was translated to x86-64 ahead of time and runs as a Windows program.

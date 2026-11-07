@@ -84,7 +84,8 @@ Copy-Item -LiteralPath "$projectRoot/.tools/xenosrecomp/LICENSE.md" -Destination
 foreach ($component in @(
         @{ Prefix = 'rexglue'; Root = "$projectRoot/.tools/rexglue-source/thirdparty" },
         @{ Prefix = 'XenosRecomp'; Root = "$projectRoot/.tools/xenosrecomp/thirdparty" })) {
-    foreach ($directory in Get-ChildItem $component.Root -Directory) {
+    # Tracy stays out of the build (scripts/build.ps1), so its licence stays out of the release.
+    foreach ($directory in Get-ChildItem $component.Root -Directory | Where-Object Name -ne 'tracy') {
         foreach ($license in Get-ChildItem $directory.FullName -File | Where-Object { $_.Name -match '^(LICEN[CS]E|COPYING)(\.[A-Za-z0-9.]+)?$' }) {
             $base = [IO.Path]::GetFileNameWithoutExtension($license.Name)
             $suffix = if ($license.Extension -match '^\.(txt|md)$' -or !$license.Extension) { '' } else { $license.Extension }
